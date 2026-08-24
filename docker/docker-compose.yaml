@@ -3,6 +3,11 @@
 # 레포 bind mount 없음(이미지가 정본), 대신 scripts/·workspace/ 두 개만 마운트합니다.
 #
 # GUI 로 띄우려면 x11.yaml 을 겹치세요:  docker compose -f docker-compose.yaml -f x11.yaml up -d
+# 프로젝트 이름을 못 박는다. 없으면 compose 가 이 파일이 있는 폴더 이름("docker")을
+# 쓰는데, 그러면 같은 이름의 폴더에서 돌아가는 다른 compose 프로젝트와 섞여
+# `docker compose down` 이 남의 컨테이너를 건드린다.
+name: humanoid-challenge-env
+
 services:
   challenge_env:
     image: ${CHALLENGE_IMAGE}

@@ -9,3 +9,4 @@ __pycache__/
 
 # 로그
 *.log
+docker/stage/
