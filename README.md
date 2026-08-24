@@ -118,6 +118,23 @@ GUI 가 안 뜰 때: ① `echo $DISPLAY` 가 컨테이너 안에서 비어 있�
 
 구체 인터페이스는 확정 후 이 절과 `scripts/README.md` 를 갱신해 공지합니다.
 
+## 라이선스 고지
+
+배포 이미지에 함께 묶이는 구성요소와 각 라이선스입니다. 대회 측이 별도로 수정한
+구성요소는 없으며(로봇 USD 원본 무수정 사용), 라이선스 전문은 이미지 안
+`/workspace/cyclo_lab` 의 `LICENSE` / `LICENSE-IsaacLab` / `THIRD_PARTY_LICENSES.md`
+에 포함되어 있습니다.
+
+| 구성요소 | 라이선스 | 비고 |
+|---|---|---|
+| Isaac Sim (베이스 이미지) | [NVIDIA Omniverse EULA](https://docs.omniverse.nvidia.com/platform/latest/common/NVIDIA_Omniverse_License_Agreement.html) | `.env` 의 `ACCEPT_EULA=Y` 설정 = 본인 동의 |
+| Isaac Lab | BSD-3-Clause | 원본 무수정 포함 |
+| 대회 환경 코드 (cyclo_lab) | Apache-2.0 | |
+| ROBOTIS 로봇 모델 (FFW-SG2, [robotis_lab](https://github.com/ROBOTIS-GIT/robotis_lab)) | Apache-2.0 | 원본 USD 무수정 사용 |
+| Eclipse Cyclone DDS | EPL-2.0 / EDL-1.0 | |
+| whole_body_tracking 차용 코드 | MIT | 환경 저장소 `THIRD_PARTY_LICENSES.md` 고지 |
+| 편의점 상품·집기 에셋 | 주최 측 제공 | 대회 참가 목적 사용 (별도 고지 시 갱신) |
+
 ## 문의
 
 대회 홈페이지의 QnA 게시판을 이용해 주세요.
