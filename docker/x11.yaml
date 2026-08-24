@@ -1,0 +1,18 @@
+# GUI 오버레이 — docker-compose.yaml 위에 겹쳐서 X11 을 컨테이너로 전달합니다.
+#   호스트에서 먼저:  xhost +local:root      (로컬 컨테이너에만 X 접근 허용)
+#   기동:            docker compose -f docker-compose.yaml -f x11.yaml up -d
+# 원본 환경 저장소의 x11.yaml 에서 xauth 임시파일 방식 대신 xhost 방식으로 단순화했습니다.
+services:
+  challenge_env:
+    environment:
+      - DISPLAY
+      - TERM
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - type: bind
+        source: /tmp/.X11-unix
+        target: /tmp/.X11-unix
+      - type: bind
+        source: /etc/localtime
+        target: /etc/localtime
+        read_only: true

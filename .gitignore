@@ -1,0 +1,9 @@
+# 참가자 작업 공간 — 수집 데이터·개인 산출물 (컨테이너 /workspace/user 마운트)
+workspace/
+
+# python
+__pycache__/
+*.pyc
+
+# 로그
+*.log

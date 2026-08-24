@@ -1,0 +1,59 @@
+# 참가자용 실행 구성 — 환경 코드·에셋은 배포 이미지(CHALLENGE_IMAGE)에 들어 있습니다.
+# 원본(대회 환경 저장소)의 compose 를 참가자용으로 줄인 것: build 절 없음(이미지 pull 전용),
+# 레포 bind mount 없음(이미지가 정본), 대신 scripts/·workspace/ 두 개만 마운트합니다.
+#
+# GUI 로 띄우려면 x11.yaml 을 겹치세요:  docker compose -f docker-compose.yaml -f x11.yaml up -d
+services:
+  challenge_env:
+    image: ${CHALLENGE_IMAGE}
+    container_name: challenge_env
+    env_file: .env
+    stdin_open: true
+    tty: true
+    # 장시간 세션에서 Isaac 이 남기는 좀비 프로세스를 PID 1 이 수거하게 합니다
+    # (없으면 실행 1회당 좀비가 ~2개씩 쌓이는 것을 운영 서버에서 실측).
+    init: true
+    # 호스트 네트워크: 호스트의 정책 서버가 컨테이너에서 127.0.0.1 로 보입니다.
+    network_mode: host
+    privileged: true
+    shm_size: "16gb"
+    environment:
+      - ISAACSIM_PATH=${DOCKER_ISAACSIM_ROOT_PATH}
+      - ISAACLAB_PATH=${DOCKER_ISAACLAB_PATH}
+      - CYCLOLAB_PATH=${DOCKER_CYCLOLAB_PATH}
+      - OMNI_KIT_ALLOW_ROOT=1
+      - ACCEPT_EULA=${ACCEPT_EULA}
+      - PRIVACY_CONSENT=Y
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    volumes:
+      # Isaac Sim 캐시 — 첫 기동 후 셰이더/에셋 캐시가 남아 재기동이 빨라집니다.
+      - isaac-cache-kit:${DOCKER_ISAACSIM_ROOT_PATH}/kit/cache
+      - isaac-cache-ov:${DOCKER_USER_HOME}/.cache/ov
+      - isaac-cache-pip:${DOCKER_USER_HOME}/.cache/pip
+      - isaac-cache-gl:${DOCKER_USER_HOME}/.cache/nvidia/GLCache
+      - isaac-cache-compute:${DOCKER_USER_HOME}/.nv/ComputeCache
+      - isaac-logs:${DOCKER_USER_HOME}/.nvidia-omniverse/logs
+      - isaac-carb-logs:${DOCKER_ISAACSIM_ROOT_PATH}/kit/logs/Kit/Isaac-Sim
+      - isaac-data:${DOCKER_USER_HOME}/.local/share/ov/data
+      # 이 저장소의 데모 스크립트 (추가 예정) — pull 만 하면 컨테이너에 바로 반영됩니다.
+      - ../scripts:/workspace/challenge_scripts
+      # 참가자 작업 공간 — 수집 데이터 등을 호스트로 꺼내는 통로입니다.
+      - ../workspace:/workspace/user
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+
+volumes:
+  isaac-cache-kit:
+  isaac-cache-ov:
+  isaac-cache-pip:
+  isaac-cache-gl:
+  isaac-cache-compute:
+  isaac-logs:
+  isaac-carb-logs:
+  isaac-data:
