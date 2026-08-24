@@ -1,5 +1,7 @@
 # 참가자 작업 공간 — 수집 데이터·개인 산출물 (컨테이너 /workspace/user 마운트)
-workspace/
+# 디렉토리 자체는 커밋한다 — 없으면 docker 가 root 소유로 만들어 참가자가 쓰기 불편하다.
+workspace/*
+!workspace/.gitkeep
 
 # python
 __pycache__/
