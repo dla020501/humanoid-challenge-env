@@ -5,8 +5,10 @@
 #
 # 세 걸음이다.
 #
-#   1. 추린다   대회 환경 저장소에서 과제 B 에 필요한 것만 docker/stage/ 로 옮긴다.
-#               아래 KEEP 배열이 "참가자에게 무엇을 주는가" 의 전부다.
+#   1. 추린다   대회 환경 저장소에서 과제 A 와 B 에 필요한 것만 docker/stage/ 로 옮긴다.
+#               아래 KEEP 배열이 "참가자에게 무엇을 주는가" 의 전부다 -- 단, 매장 에셋만은
+#               예외로 넉넉히 옮겨 두고 2 단계에서 실제로 쓰이는 것만 골라 담는다. 그 이유는
+#               KEEP 안에 적어 두었다.
 #   2. 다시 깐다 에셋 트리를 배포용 이름으로 재배치하고(reshape_assets.py), 환경 코드의
 #               경로 상수를 새 자리로 고친다(patch_paths.py). **원본 저장소는 건드리지
 #               않는다** -- 고치는 것은 stage 안의 사본뿐이라, 수집·평가 파이프라인이
@@ -15,6 +17,9 @@
 #
 # 참가자는 이 스크립트를 쓸 일이 없다 -- 이미지는 받아서 쓰는 것이다. 이것은 대회 측이
 # 그 이미지를 어떻게 만드는지에 대한 기록이자, 다시 만들 수 있게 하는 수단이다.
+#
+# `SKIP_BUILD=1` 을 주면 5 단계(굽기)를 건너뛰고 stage 만 만든다. 1~4 단계는 몇 분이고
+# 굽기는 그보다 훨씬 오래 걸리므로, KEEP 을 고쳤을 때 "추려담기가 맞는가" 만 먼저 볼 때 쓴다.
 set -euo pipefail
 
 SRC="${1:-}"
@@ -31,13 +36,16 @@ SRC="$(cd "$SRC" && pwd)"
 
 # 이미지에 들어가는 것 전부. 경로는 대회 환경 저장소의 루트 기준.
 #
-# 여기에 **없는** 것 중 설명이 필요한 둘:
+# 여기에 **없는** 것 중 설명이 필요한 셋:
+#   taskC_products/         과제 C 의 상품 452 MB. 과제 C 의 장면이 들어올 때 함께 온다.
+#                           매장 정의(store/manifest.json)가 이름으로 언급하기는 하지만,
+#                           과제 A 의 매장 USD 는 자기 상품을 스스로 물고 있어서 필요 없다.
 #   our_scan_data/          상품 36 개가 taskB_products/ 와 md5 단위로 겹치는 사본이다
 #                           (2026-08-25 확인). 옛날에는 이것도 넣어야 상품에 색이 입었는데,
 #                           skin USD 가 텍스처를 그쪽 절대경로로 물고 있었기 때문이다.
 #                           reshape_assets.py 가 그 경로를 상대경로로 다시 쓰므로 이제
 #                           사본 한 벌이면 된다. 200 MB 가 그대로 빠진다.
-#   FFW_SH5 / OMY USD       과제 B 가 쓰지 않는 로봇이다. 93 MB.
+#   FFW_SH5 / OMY USD       아무 과제도 쓰지 않는 로봇이다. 93 MB.
 KEEP=(
   # 라이선스 — README 의 고지가 가리키는 파일들
   LICENSE
@@ -57,15 +65,48 @@ KEEP=(
   source/cyclo_lab/config
   source/cyclo_lab/cyclo_lab
 
-  # 에셋 원본. 이 아래 다섯 줄이 로봇 하나, 진열대 하나, 책상 하나, 상자 하나,
-  # 그리고 그 위에 서는 36 개 상품이다. 2 단계에서 배포용으로 다시 깔린다.
+  # 에셋 원본. 로봇 하나, 집기 한 벌, 책상 하나, 상자 하나, 그리고 진열대에 서는 36 개
+  # 상품이다. 2 단계에서 배포용으로 다시 깔린다.
+  #
+  # `fixtures/` 는 2026-08-25 에 `fixtures/shelf_taskB` 에서 통째로 넓혔다 -- 매장 USD 가
+  # 쇼케이스·쓰레기통·계산대 같은 맨 집기를 여기서 참조하기 때문이다(과제 A). 넓혀도
+  # 이미지가 48 MB 커지지는 않는다: reshape 가 매장 USD 에서 실제로 도달하는 것만 담는다.
   source/cyclo_lab/data/robots/FFW/FFW_SG2.usd
   source/cyclo_lab/data/props/convstore/manifest.json
   source/cyclo_lab/data/props/convstore/layout.json
-  source/cyclo_lab/data/props/convstore/fixtures/shelf_taskB
+  source/cyclo_lab/data/props/convstore/fixtures
   source/cyclo_lab/data/props/convstore/taskB_products
   source/cyclo_lab/data/Table/Table.usd
   source/cyclo_lab/data/Crate/blue_box.usd
+
+  # 과제 A -- 매장 전체. 과제 B 가 진열대 하나 앞에서 벌어지는 것과 달리 과제 A 는 매장을
+  # 가로지르므로 편의점이 통째로 필요하다.
+  #
+  # 이 아래는 **stage 로 옮기는 것**이고 이미지에 들어가는 것과 같지 않다. 위의 다른 항목들과
+  # 다른 점이 여기 있다: `store_scene.usd` 는 참조 94 개와 텍스처 180 장을 물고 있는데 그
+  # 목록은 사람이 손으로 적을 것이 아니다(적으면 반드시 어긋난다). 그래서 여기서는 넉넉히
+  # 옮기고, `reshape_assets.py` 가 USD 를 열어 **실제로 도달하는 파일만** 골라 담는다.
+  # 실측 2026-08-25: fixture_kit 에서 stage 로 347 MB 를 옮겨, 그중 이미지에 들어가는 것은
+  # 191 MB (파일 274 개)다. 나머지는 4 단계 뒤 stage 에서 통째로 버린다.
+  #
+  # 좌석 실측값과 목적지도 여기 들어간다. 둘 다 참가자 데모가 장면을 세우는 데 쓴다.
+  # `out/scenes` 가 아니라 `out` 통째다. 2026-08-25 에 scenes 만 넣었다가 곤돌라의
+  # **가격표 그림 24 장**(`shelf_random_kit/out/price_pops/`)이 조용히 빠졌다 -- 씬은
+  # 열리고 진열대도 서는데 가격표만 회색이 된다. 어느 킷이 out/ 어디에 무엇을 두는지는
+  # 킷마다 다르므로, 고르는 일은 사람이 하지 말고 reshape 에게 맡긴다.
+  fixture_kit/out/store_scene.usd
+  fixture_kit/eatin_kit/assets
+  fixture_kit/eatin_kit/out
+  fixture_kit/freezer_kit/assets
+  fixture_kit/freezer_kit/out
+  fixture_kit/fridge_random_kit/assets
+  fixture_kit/fridge_random_kit/out
+  fixture_kit/liquor_shelf_kit/assets
+  fixture_kit/liquor_shelf_kit/out
+  fixture_kit/shelf_random_kit/assets
+  fixture_kit/shelf_random_kit/out
+  source/cyclo_lab/data/props/convstore/eatin_measured.json
+  source/cyclo_lab/data/props/convstore/destinations.json
 )
 
 echo "[1/5] stage 를 비운다: $STAGE"
@@ -95,6 +136,17 @@ for p in "${KEEP[@]}"; do
   printf '  %-58s %s\n' "$p" "$(du -sh "$STAGE/$p" | cut -f1)"
 done
 
+# 에셋 저작자 표시. **원본 저장소에서 오지 않는 유일한 파일이다.**
+#
+# 옆의 THIRD_PARTY_LICENSES.md 는 원본이 코드에 대해 쓰는 파일이라 KEEP 이 그대로 옮겨
+# 온다. 그런데 이미지에 함께 실리는 3D 에셋 중에는 재배포에 저작자 표시가 따라가야 하는
+# 것이 있고 -- 시식 코너 스툴이 CC BY 4.0 이다 -- 그 목록은 이 이미지가 무엇을 담기로
+# 했느냐에 따라 달라진다(과제가 늘면 에셋도 는다). 원본에는 그 사정이 없으므로 여기서 만든다.
+#
+# README 의 라이선스 표에만 적어 두면 이미지만 받은 사람에게는 표시가 닿지 않는다.
+cp "$HERE/NOTICE_ASSETS.md" "$STAGE/NOTICE_ASSETS.md"
+printf '  %-58s %s\n' "NOTICE_ASSETS.md (이 레포에서)" "$(du -sh "$STAGE/NOTICE_ASSETS.md" | cut -f1)"
+
 echo "[3/5] 에셋을 배포용으로 다시 깐다"
 # pxr 은 Isaac Sim 을 띄우지 않고도 쓸 수 있다 -- extscache 의 omni.usd.libs 를
 # PYTHONPATH/LD_LIBRARY_PATH 에 얹으면 import 된다. 앱 기동 30~60 초를 아낀다.
@@ -117,10 +169,19 @@ docker run --rm --entrypoint bash --user root \
 # 찾으므로(CYCLO_LAB_ASSETS_DATA_DIR) 자리는 그대로 두고 안을 바꾼다.
 rm -rf "$STAGE/source/cyclo_lab/data"
 mv "$HERE/.assets" "$STAGE/source/cyclo_lab/data"
+# fixture_kit 은 **원료**였다. reshape 가 매장 USD 에서 실제로 도달하는 것만 data/store/scene
+# 으로 담았으므로 stage 에 남은 원본은 버린다 -- Dockerfile 이 `COPY stage/` 한 줄로 통째로
+# 퍼 담기 때문에, 여기서 지우지 않으면 쓰이지 않는 347 MB 가 이미지에 그대로 들어간다.
+rm -rf "$STAGE/fixture_kit"
 
 echo "[4/5] 환경 코드의 경로 상수를 새 자리로"
 python3 "$HERE/patch_paths.py" "$STAGE"
 echo "  stage 전체 $(du -sh "$STAGE" | cut -f1)  (에셋 $(du -sh "$STAGE/source/cyclo_lab/data" | cut -f1))"
+
+if [[ -n "${SKIP_BUILD:-}" ]]; then
+  echo "[5/5] SKIP_BUILD 가 설정돼 굽지 않는다. stage 만 만들어 두었다: $STAGE"
+  exit 0
+fi
 
 echo "[5/5] docker build -t $TAG"
 docker build -t "$TAG" -f "$HERE/Dockerfile" "$HERE"

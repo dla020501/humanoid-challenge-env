@@ -36,14 +36,21 @@
           <이름>.usd        스폰되는 것. ./<이름>_skin.usd 를 상대참조한다
           <이름>_skin.usd   보이는 메시와 재질
           textures/albedo.png
-      store/                   매장 자체의 정의 -- 진열대·냉장고 20 종과 거기 놓이는
-        manifest.json          상품 35 종의 목록. 과제 B 는 쓰지 않지만 환경 코드가
-        layout.json            import 할 때 읽으므로 들어간다(48 KB). 위 products 와
-                               이름이 하나도 겹치지 않는 별개의 집합이다.
+      store/                   매장. 앞의 둘은 매장을 '말로' 적은 것이고,
+        manifest.json            진열대·냉장고 20 종과 거기 놓이는 상품 35 종의 목록.
+        layout.json              매장 배치. 위 products 와는 이름이 하나도 겹치지 않는
+                                 별개의 집합이다. 과제 B 는 쓰지 않지만 환경 코드가
+                                 import 할 때 읽으므로 들어간다(48 KB).
+        eatin_measured.json      시식 코너 실측값 -- 과제 A 의 12 좌석이 여기서 나온다
+        destinations.json        과제 A 의 목적지. 진짜 하나만 (아래 copy_destinations)
+        scene/                   매장 **자체** (191 MB). 과제 A 는 편의점을 가로지르므로
+                                 그림이 있어야 한다. 이 아래만은 원본의 상대 배치를 그대로
+                                 지킨다 -- 이유는 copy_scene 의 주석에 있다.
 
-버려지는 것: `our_scan_data/`(중복), FFW-SH5 와 OMY 로봇 USD(과제 B 가 안 쓴다),
+버려지는 것: `our_scan_data/`(중복), FFW-SH5 와 OMY 로봇 USD(아무 과제도 안 쓴다),
 Table 의 CAD 원본(`.3MF`/`.step`/`_mesh.json`/`.glb`), 변환 부산물(`config.yaml`,
-`.asset_hash`), 매장 `layout.json`.
+`.asset_hash`), 그리고 매장 씬이 실제로 물고 있지 않은 fixture_kit 의 나머지 전부
+(stage 로 옮긴 347 MB 중 191 MB 만 도달한다).
 
 pxr 은 Isaac Sim 을 띄우지 않고도 쓸 수 있다 -- extscache 의 omni.usd.libs 를
 PYTHONPATH/LD_LIBRARY_PATH 에 얹으면 import 된다. build_image.sh 가 그렇게 부른다.
@@ -138,6 +145,145 @@ def retexture(src_dir, skin_usd):
     return changed
 
 
+STORE_SCENE = f"{RAW}/fixture_kit/out/store_scene.usd"
+
+
+def scene_files(root):
+    """`root` USD 가 실제로 물고 있는 파일 전부. RAW 기준 상대경로로 돌려준다.
+
+    참조(reference/payload/subLayer)를 재귀로 따라가고, 도달한 레이어마다 에셋 값 속성
+    -- 텍스처가 그것이다 -- 도 함께 모은다.
+
+    **손으로 적지 않는 이유.** 이 그래프는 레이어 94 개와 텍스처 180 장이다(2026-08-25).
+    사람이 유지하는 목록은 반드시 원본과 어긋나고, 어긋난 쪽이 텍스처면 증상은 "색이
+    없다" 가 아니라 "아무 일도 없다" 이다 -- 그렇게 텍스처가 빠진 채로 평가를 두 판
+    돌린 적이 있다(scripts/tools/eval_ckpt_fleet.py:85). USD 에게 직접 묻는다.
+    """
+    seen, layers, files = set(), [], set()
+
+    def refs(layer):
+        out = set(str(s) for s in layer.subLayerPaths)
+
+        def rec(spec):
+            for name in ("referenceList", "payloadList"):
+                lst = getattr(spec, name, None)
+                if lst is None:
+                    continue
+                for it in (list(lst.prependedItems) + list(lst.appendedItems)
+                           + list(lst.explicitItems) + list(lst.addedItems)):
+                    if getattr(it, "assetPath", ""):
+                        out.add(str(it.assetPath))
+            for c in spec.nameChildren:
+                rec(c)
+
+        for p in layer.rootPrims:
+            rec(p)
+        return out
+
+    def walk(path):
+        path = os.path.normpath(path)
+        if path in seen:
+            return
+        seen.add(path)
+        if not os.path.isfile(path):
+            raise RuntimeError(f"매장 씬이 없는 파일을 참조한다: {path}\n"
+                               f"build_image.sh 의 KEEP 이 부족하다.")
+        layers.append(path)
+        files.add(path)
+        layer = Sdf.Layer.FindOrOpen(path)
+        if layer is None:
+            return
+        here = os.path.dirname(path)
+        for r in sorted(refs(layer)):
+            walk(r if r.startswith("/") else os.path.join(here, r))
+
+    walk(root)
+
+    for path in layers:
+        layer = Sdf.Layer.FindOrOpen(path)
+        if layer is None:
+            continue
+        here = os.path.dirname(path)
+
+        def textures(spec):
+            for name in spec.attributes.keys():
+                a = spec.attributes[name]
+                if a.typeName != Sdf.ValueTypeNames.Asset or a.default is None:
+                    continue
+                ap = str(a.default.path)
+                # 빈 값은 "이 입력은 안 쓴다" 는 뜻이다. 집기 USD 들이 opacity 같은
+                # 입력을 선언해 두고 비워 놓는다 -- 가리키는 그림이 없는 것이 정상이다.
+                if not ap:
+                    continue
+                # 절대경로면 옮길 수 없다. 2026-08-25 측정에서는 하나도 없었고, 생겼다면
+                # 그것은 에셋 쪽이 바뀐 것이므로 조용히 지나가서는 안 된다.
+                if ap.startswith("/"):
+                    raise RuntimeError(f"{path} 의 {name} 이 절대경로다: {ap}")
+                t = os.path.normpath(os.path.join(here, ap))
+                if os.path.isfile(t):
+                    files.add(t)
+                elif not ap.lower().endswith(".mdl"):
+                    # `.mdl` 은 Isaac 이 자기 재질 라이브러리에서 찾는 셰이더라 여기 없는
+                    # 것이 정상이다. 그 밖에 해소되지 않는 것은 **그림이 빠진 것**이고,
+                    # 조용히 지나가면 참가자는 회색 집기를 받는다. 2026-08-25 에 KEEP 이
+                    # `out/scenes` 만 담아 곤돌라 가격표 24 장이 이렇게 빠졌고, 아무도
+                    # 아무 말도 하지 않았다. 그래서 여기서 멈춘다.
+                    raise RuntimeError(
+                        f"{os.path.relpath(path, RAW)} 의 {name} 이 가리키는 그림이 "
+                        f"stage 에 없다: {ap}\n"
+                        f"build_image.sh 의 KEEP 이 부족하다.")
+            for c in spec.nameChildren:
+                textures(c)
+
+        for prim in layer.rootPrims:
+            textures(prim)
+
+    rel = sorted(os.path.relpath(f, RAW) for f in files)
+    for r in rel:
+        if r.startswith(".."):
+            raise RuntimeError(f"stage 밖을 가리킨다: {r}")
+    return rel, len(layers)
+
+
+def copy_scene():
+    """매장 씬을 `store/scene/` 아래에 **원본의 상대 배치 그대로** 옮긴다.
+
+    이 트리만 이름을 정리하지 않는 이유가 있다. 상품 쪽은 텍스처가 절대경로라 어차피 다시
+    써야 했고, 그래서 겸사겸사 이름도 갈았다. 매장 쪽은 정반대다 -- 참조 94 개와 텍스처
+    180 장이 **전부 상대경로**라(2026-08-25 측정: 절대경로 0), 서로의 위치 관계만 지키면
+    한 글자도 고치지 않고 통째로 옮겨진다.
+
+    이름을 정리하려면 그 274 개 경로를 전부 다시 써야 하고, 하나라도 놓치면 그 집기는
+    조용히 회색으로 나온다. 고쳐서 얻는 것(보기 좋은 디렉토리 이름)보다 잃을 수 있는
+    것(말없이 색이 빠진 매장)이 크다. 그래서 `store/scene/` 은 원본 저장소 루트 자리를
+    대신하고, 그 아래는 원본 그대로다.
+    """
+    rel, n_layers = scene_files(STORE_SCENE)
+    for r in rel:
+        copy(f"{RAW}/{r}", f"{OUT}/store/scene/{r}")
+    size = sum(os.path.getsize(f"{OUT}/store/scene/{r}") for r in rel)
+    print(f"[scene]    매장 USD -- 레이어 {n_layers} 개, 파일 {len(rel)} 개, "
+          f"{size / 1e6:.0f} MB")
+
+
+def copy_destinations():
+    """목적지 정의. **진짜 하나만** 담는다.
+
+    원본에는 하드 네거티브용 가짜 목적지 열 곳이 함께 들어 있다. 그것은 수집 때 "진열대가
+    비어 있으니 저기가 목표" 같은 지름길을 막으려고 만든 학습용 장치이지 장면의 일부가
+    아니다. 참가자 환경은 진짜 목적지 하나와 그 옆 책상 하나만 세운다.
+    """
+    with open(f"{PROPS}/destinations.json", encoding="utf-8") as fh:
+        rows = json.load(fh)["destinations"]
+    real = [r for r in rows if not r.get("fake")]
+    if len(real) != 1:
+        raise RuntimeError(f"진짜 목적지가 1 개가 아니라 {len(real)} 개다")
+    os.makedirs(f"{OUT}/store", exist_ok=True)
+    with open(f"{OUT}/store/destinations.json", "w", encoding="utf-8") as fh:
+        json.dump({"destinations": real}, fh, ensure_ascii=False, indent=1)
+    print(f"[store]    destinations.json -- 진짜 1 개 (가짜 {len(rows) - 1} 개는 뺐다)")
+
+
 def main():
     if os.path.isdir(OUT):
         shutil.rmtree(OUT)
@@ -193,6 +339,13 @@ def main():
     copy(f"{PROPS}/manifest.json", f"{OUT}/store/manifest.json")
     copy(f"{PROPS}/layout.json", f"{OUT}/store/layout.json")
     print("[store]    manifest.json layout.json")
+
+    # ---------------------------------------------------------------- 과제 A 의 매장
+    # 위의 manifest/layout 은 매장을 **말로** 적은 것이고, 아래는 매장 **자체**다.
+    # 과제 A 는 편의점을 가로지르므로 그림이 있어야 한다.
+    copy(f"{PROPS}/eatin_measured.json", f"{OUT}/store/eatin_measured.json")
+    copy_destinations()
+    copy_scene()
     print(f"[products] {len(names)} 개, 텍스처 경로 {total_rewritten} 곳을 "
           f"./textures/albedo.png 로 다시 썼다")
 
