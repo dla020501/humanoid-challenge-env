@@ -9,4 +9,11 @@ __pycache__/
 
 # 로그
 *.log
+
+# 빌드 산출물 — stage 트리, 오버레이 아카이브(주최측 산출·참가자 다운로드)
 docker/stage/
+docker/dist/
+docker/challenge-overlay.tar.gz
+
+# 계획 문서 — 커밋하지 않는다
+docs/

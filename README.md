@@ -22,12 +22,16 @@ ROBOTIS **AI Worker (FFW-SG2)** 휴머노이드로 편의점 일을 시키는 �
 ## 저장소 구성
 
 ```
-docker/       도커 실행 구성. 환경과 에셋은 배포 이미지 안에 들어 있습니다
-scripts/      데모 스크립트. 컨테이너의 /workspace/challenge_scripts 로 붙습니다
+docker/       도커 실행 구성. 환경 코드(cyclo_lab)와 에셋은 배포 이미지 안에 들어 있습니다
+scripts/      주최측 제공 스크립트 — 씬 생성기(task 별)와 데모 평가 서버.
+              컨테이너의 /workspace/challenge_scripts 로 붙습니다
+  demo_server/    채점과 같은 방식으로 정책 서버를 붙여 보는 데모 평가 서버 (준비 중)
+run/          실행 진입점. run_gui.sh 가 GUI 로 컨테이너를 띄우고,
+              run_task_*.bash 가 해당 과제의 씬을 랜덤하게 하나 생성해 띄웁니다 (준비 중)
 workspace/    참가자 작업 공간. 컨테이너의 /workspace/user 로 붙습니다 (git 미추적)
 ```
 
-`scripts/` 와 `workspace/` 는 마운트라서, 스크립트가 늘어나면 `git pull` 만 하면
+`scripts/` 와 `workspace/` 는 마운트라서, 내용이 늘어나면 `git pull` 만 하면
 컨테이너를 다시 만들지 않고 바로 쓸 수 있습니다.
 
 이미지를 무엇으로 어떻게 굽는지는 `docker/Dockerfile` 과 `docker/build_image.sh` 에
@@ -46,22 +50,29 @@ workspace/    참가자 작업 공간. 컨테이너의 /workspace/user 로 붙�
 
 ```bash
 git clone git@github.com:kairobahq/humanoid-challenge-env.git
-cd humanoid-challenge-env/docker
+cd humanoid-challenge-env
 
-# 1) Isaac Sim 사용 조건에 동의합니다 — .env 에서 ACCEPT_EULA=Y 로 바꾸세요.
-#    (NVIDIA Omniverse EULA 에 본인이 동의한다는 뜻입니다)
-vi .env
+# 1) Isaac Sim 사용 조건에 동의합니다 — docker/.env 에서 ACCEPT_EULA=Y 로 바꾸세요.
+#    (NVIDIA Isaac Sim 라이선스에 본인이 동의한다는 뜻입니다)
+vi docker/.env
 
-# 2) 이미지를 받고 컨테이너를 띄웁니다 (화면 없이)
-docker compose pull
+# 2) 이미지를 여러분 머신에서 만듭니다 (처음 20~40 분) — 이 한 줄이 Isaac Sim 바탕
+#    이미지 받기 + 대회 환경 설치까지 전부 합니다
+./run/setup.sh
+
+# 3) 컨테이너를 띄우고 들어갑니다 (화면 없이)
+cd docker
 docker compose up -d
-
-# 3) 컨테이너 안으로 들어갑니다
 docker exec -it challenge_env bash
 ```
 
-> 배포 이미지 주소는 `.env` 의 `CHALLENGE_IMAGE` 입니다. **대회 공지에서 확정된
-> 주소를 확인**하고 값이 다르면 바꾸세요.
+> `container ... is not running` 이 나오면 `docker logs challenge_env` 를 보세요.
+> 대부분 1번(ACCEPT_EULA)을 건너뛴 경우입니다.
+
+> **이미지를 미리 구워 나눠 주지 않는 이유** — Isaac Sim 컨테이너의 라이선스(NVIDIA
+> Isaac Sim Additional Software and Materials License)가 제3자 재배포를 허용하지
+> 않습니다. 그래서 NVIDIA 바탕 이미지는 각자 NVIDIA 레지스트리에서 직접 받고(1번의
+> 동의가 그 조건입니다), 대회 쪽 코드와 에셋만 오버레이 아카이브로 배포합니다.
 
 ### 스크립트를 돌리는 세 가지 규칙
 
@@ -106,7 +117,9 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
 두면 에피소드마다 218 mm 를 낙하하고 튄 자리에 서게 됩니다. 그래서 데모는 스폰 직후
 바퀴 높이를 재서 그만큼 로봇을 내려 앉힙니다. 돌리면 그 숫자를 찍어 줍니다.
 
-**카메라** — 머리 하나(672×376)와 양 손목 둘(244×244). 채점 때 쓰는 값과 같습니다.
+**카메라** — 채점이 정책에게 보내는 관측은 세 대입니다: 머리 `head_l`(672×376,
+실기 ZED 좌안)과 양 손목 `wrist_l`/`wrist_r`(424×240, D405). 이 데모 스크립트는
+아직 옛 구성을 스폰하며, 씬 생성기 교체와 함께 이 값으로 맞춰집니다.
 
 ### 장면 하나는 seed 하나가 정합니다
 
@@ -163,58 +176,47 @@ JSON 으로 남습니다. `--shot` 은 로봇 머리 카메라가 보는 그림�
 
 ## 환경 안의 에셋
 
-이미지 안 `/workspace/cyclo_lab/source/cyclo_lab/data` 에 있습니다. 과제 B 를
-세우는 데 필요한 것만 들어 있습니다.
+이미지 안 `/workspace/assets` 에 있습니다. 환경 코드(cyclo_lab)는 이 폴더를
+`source/cyclo_lab/data` 링크로 봅니다.
 
 ```
-data/
-  robot/
-    ffw_sg2.usd                      로봇 (40 MB)
-
-  fixtures/                          집기 (456 KB)
-    shelf/shelf.usd                    진열대. 재질 그림 네 장이 같은 폴더에
-    table/table.usd                    책상
-    crate/crate.usd                    파란 상자
-
-  products/                          과제 B 의 상품 36 개 (196 MB)
-    manifest.json                      크기, 무게, 콜라이더, USD 경로
-    orientation.json                   어느 면이 위인가
-    display_yaw.json                   진열될 때 몇 도 돌아가는가
-    shapes.json                        상자인가 원통인가. 상자 안에서 눕는 모양을 정한다
-    cocacola_zero/
-      cocacola_zero.usd                  스폰되는 것
-      cocacola_zero_skin.usd             보이는 메시와 재질
-      textures/albedo.png                색 그림
-    ... 35 개 더
-
-  store/                             매장 자체의 정의 (52 KB)
-    manifest.json                      진열대·냉장고 20 종과 거기 놓이는 상품 35 종
-    layout.json                        매장 배치
+assets/
+  robots/FFW/FFW_SG2.usd           로봇 (40 MB)
+  props/convstore/
+    manifest.json  layout.json    매장 정의 -- 픽스처 22 종과 진열 배치
+    fixtures/                      진열대·냉장고·계산대·바구니 등 (48 MB)
+    products/                      매장에 진열되는 상품 (53 MB)
+    taskB_products/                과제 B 상품 36 개 (197 MB)
+      manifest.json                  크기·무게·콜라이더·usd 경로
+      taskb_orientation.json         어느 면이 위인가
+      taskb_display_yaw.json         진열될 때 몇 도 돌아가는가
+      <이름>/
+        <이름>.usd                     스폰되는 것. <이름>_skin.usd 를 상대참조한다
+        <이름>_skin.usd                보이는 메시와 재질
+        textures/                      색 그림
+  Table/  Crate/                   과제 B 데모의 책상과 파란 상자
 ```
 
-`store/` 는 과제 A 와 C 가 쓸 매장 정의입니다. 과제 B 는 쓰지 않지만 환경 코드가
-불러올 때 읽으므로 함께 들어 있습니다. `products/` 와는 이름이 하나도 겹치지 않는
-다른 집합입니다.
-
-상품 USD 는 색 그림을 **자기 폴더 안에서 상대경로로** 찾습니다
-(`./textures/albedo.png`). 그래서 상품 폴더 하나만 옮겨도 색이 그대로 따라옵니다.
+상품 USD 는 색 그림을 **자기 폴더 안에서 상대경로로** 찾습니다. 그래서 상품 폴더
+하나만 옮겨도 색이 그대로 따라옵니다.
 
 ## 화면으로 띄우기
 
-시뮬레이션을 눈으로 보려면 X11 구성을 겹쳐서 띄웁니다.
-
 ```bash
-# 호스트에서 — X 서버 접근을 열어 줍니다 (로컬 컨테이너에만, 로그인마다 한 번)
-xhost +local:root
-
-cd docker
-docker compose -f docker-compose.yaml -f x11.yaml up -d
-docker exec -it challenge_env bash
+./run/run_gui.sh
 ```
 
-컨테이너 안에서 `--headless` 를 **빼고** 돌리면 Isaac Sim 창이 뜹니다.
+X11 구성을 겹쳐 컨테이너를 띄우고 **매장 기본 씬**(`scripts/basic_convstore.py`)을
+자동으로 엽니다 — 편의점 매장 전체에 로봇이 서 있는 그림입니다. 로봇을 움직이는
+것은 여러분의 코드 몫입니다. 창이 뜨기까지 30~60 초 걸리고 그동안 경고가 잔뜩
+나옵니다. 정상입니다.
+
+다른 씬을 보려면 컨테이너에 들어가 `--headless` 를 **빼고** 돌립니다. 창을 닫아도
+컨테이너는 떠 있습니다.
 
 ```bash
+docker exec -it challenge_env bash
+# 예: 과제 B 데모 씬
 cd /workspace/cyclo_lab
 ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
     /workspace/challenge_scripts/task_b_demo.py --seed 1000
@@ -244,6 +246,8 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
 
 ## 라이선스 고지
 
+이 저장소의 코드(스크립트·도커 구성)는 Apache-2.0 입니다 — 전문은 [`LICENSE`](LICENSE).
+
 배포 이미지에 함께 들어가는 구성요소와 각각의 라이선스입니다. 대회 측이 따로 고친
 구성요소는 없습니다(로봇 USD 는 원본 그대로 씁니다). 라이선스 전문은 이미지 안
 `/workspace/cyclo_lab` 의 `LICENSE`, `LICENSE-IsaacLab`, `THIRD_PARTY_LICENSES.md`
@@ -251,9 +255,9 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
 
 | 구성요소 | 라이선스 | 비고 |
 |---|---|---|
-| Isaac Sim (바탕 이미지) | [NVIDIA Omniverse EULA](https://docs.omniverse.nvidia.com/platform/latest/common/NVIDIA_Omniverse_License_Agreement.html) | `.env` 의 `ACCEPT_EULA=Y` 가 본인 동의 |
+| Isaac Sim (바탕 이미지) | [NVIDIA Isaac Sim Additional Software and Materials License](https://www.nvidia.com/en-us/agreements/enterprise-software/isaac-sim-additional-software-and-materials-license/) | 재배포 불가 조항 때문에 각자 NVIDIA 에서 직접 받습니다. `.env` 의 `ACCEPT_EULA=Y` 가 본인 동의 |
 | Isaac Lab | BSD-3-Clause | 원본 그대로 |
-| 대회 환경 코드 (cyclo_lab) | Apache-2.0 | |
+| 대회 환경 코드 (cyclo_lab) | Apache-2.0 | ROBOTIS [robotis_lab](https://github.com/ROBOTIS-GIT/robotis_lab) 포크에 대회 환경을 얹은 것. 원저작권 고지는 코드에 유지 |
 | ROBOTIS 로봇 모델 (FFW-SG2, [robotis_lab](https://github.com/ROBOTIS-GIT/robotis_lab)) | Apache-2.0 | 원본 USD 그대로 |
 | whole_body_tracking 에서 가져온 코드 | MIT | `THIRD_PARTY_LICENSES.md` 에 고지 |
 | 편의점 상품·집기 에셋 | 주최 측 제공 | 대회 참가 목적으로 사용 |

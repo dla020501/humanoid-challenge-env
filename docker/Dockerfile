@@ -57,8 +57,13 @@ RUN --mount=type=cache,target=/var/cache/apt \
     && apt -y autoremove && apt clean autoclean \
     && rm -rf /var/lib/apt/lists/*
 
-# build_image.sh 가 추려 놓은 트리. 무엇이 들어오는지는 그 스크립트의 KEEP 목록이 전부다.
+# build_image.sh 가 추려 놓은 트리. 무엇이 들어오는지는 그 스크립트의 KEEP/PRUNE 목록이 전부다.
 COPY stage/ ${CYCLOLAB_PATH}/
+
+# 에셋은 코드와 떨어진 /workspace/assets 에 둔다. 환경 코드(cyclo_lab)는 패키지 옆
+# source/cyclo_lab/data 를 찾으므로 그 자리에 링크를 건다.
+RUN mv ${CYCLOLAB_PATH}/assets /workspace/assets && \
+    ln -s /workspace/assets ${CYCLOLAB_PATH}/source/cyclo_lab/data
 
 RUN chmod +x ${ISAACLAB_PATH}/isaaclab.sh && \
     ln -sf ${ISAACSIM_ROOT_PATH} ${ISAACLAB_PATH}/_isaac_sim
@@ -79,6 +84,12 @@ RUN --mount=type=cache,target=${DOCKER_USER_HOME}/.cache/pip \
     ${ISAACLAB_PATH}/isaaclab.sh --install
 
 RUN ${ISAACLAB_PATH}/isaaclab.sh -p -m pip uninstall -y quadprog
+
+# 정책 서버 프로토콜(WebSocket + msgpack) -- scripts/demo_server 가 쓴다.
+# websockets 는 13 미만이면 sync API 의 ssl/additional_headers 인자 이름이 달라
+# 템플릿(server.py)과 demo_server 가 둘 다 죽는다 (12.0 으로 실측).
+RUN --mount=type=cache,target=${DOCKER_USER_HOME}/.cache/pip \
+    ${ISAACLAB_PATH}/isaaclab.sh -p -m pip install "websockets>=13" msgpack msgpack-numpy
 
 RUN --mount=type=cache,target=${DOCKER_USER_HOME}/.cache/pip \
     cd ${CYCLOLAB_PATH}/source/cyclo_lab && \

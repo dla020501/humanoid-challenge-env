@@ -224,8 +224,10 @@ RIGHT_JOINTS = [f"arm_r_joint{i + 1}" for i in range(7)]
 class World(InteractiveSceneCfg):
     """바닥, 조명, 로봇, 진열대, 책상, 상자, 그리고 이 장면의 상품 전부.
 
-    로봇에 달린 카메라 셋은 수집 때 쓰는 값 그대로다 -- 정책이 받게 될 관측이
-    어떤 화각인지 여기서 확인할 수 있다.
+    카메라 둘은 채점이 정책에게 보내는 관측과 같은 값이다 -- head_cam 672x376,
+    right_wrist_cam 424x240. 환경 코드의 기본 해상도는 244x244 지만 채점 서버가
+    이 값으로 덮어쓰므로, 여기도 같은 값을 명시한다. 왼손목 카메라는 현재 채점
+    관측에 없다(스폰 자체를 안 한다).
     """
 
     ground = AssetBaseCfg(prim_path="/World/ground", spawn=sim_utils.GroundPlaneCfg())
@@ -235,28 +237,18 @@ class World(InteractiveSceneCfg):
     robot = FFW_SG2_MOBILE_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
     head_cam = CameraCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/ffw_sg2_follower/head_link2/zed/cam_head",
+        prim_path="{ENV_REGEX_NS}/Robot/ffw_sg2_follower/head_link2/head_cam",
         update_period=1.0e9, height=376, width=672, data_types=["rgb"],
         update_latest_camera_pose=True,
-        spawn=sim_utils.PinholeCameraCfg(focal_length=10.4, focus_distance=200.0,
-                                         horizontal_aperture=20.955,
-                                         clipping_range=(0.1, 100.0)),
-        offset=CameraCfg.OffsetCfg(pos=(0.0, 0.03, 0.0), rot=(0.5, 0.5, -0.5, -0.5),
-                                   convention="isaac"))
-    cam_left_wrist = CameraCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/ffw_sg2_follower/arm_l_link7"
-                  "/camera_l_bottom_screw_frame/camera_l_link/cam_left_wrist",
-        update_period=1.0e9, height=244, width=244, data_types=["rgb"],
-        update_latest_camera_pose=True,
-        spawn=sim_utils.PinholeCameraCfg(focal_length=18.0, focus_distance=400.0,
+        spawn=sim_utils.PinholeCameraCfg(focal_length=12.0, focus_distance=400.0,
                                          horizontal_aperture=20.955,
                                          clipping_range=(0.1, 2.0)),
-        offset=CameraCfg.OffsetCfg(pos=(-0.08, 0.0, 0.0), rot=(0.5, -0.5, -0.5, 0.5),
+        offset=CameraCfg.OffsetCfg(pos=(-0.03, 0.04, 0.0), rot=(0.5, 0.5, -0.5, -0.5),
                                    convention="isaac"))
-    cam_right_wrist = CameraCfg(
+    right_wrist_cam = CameraCfg(
         prim_path="{ENV_REGEX_NS}/Robot/ffw_sg2_follower/arm_r_link7"
-                  "/camera_r_bottom_screw_frame/camera_r_link/cam_right_wrist",
-        update_period=1.0e9, height=244, width=244, data_types=["rgb"],
+                  "/camera_r_bottom_screw_frame/camera_r_link/right_wrist_cam",
+        update_period=1.0e9, height=240, width=424, data_types=["rgb"],
         update_latest_camera_pose=True,
         spawn=sim_utils.PinholeCameraCfg(focal_length=18.0, focus_distance=400.0,
                                          horizontal_aperture=20.955,

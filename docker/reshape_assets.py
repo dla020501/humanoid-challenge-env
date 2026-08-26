@@ -1,52 +1,15 @@
-"""원본 저장소의 에셋 트리를 배포용으로 다시 깐다.
+"""과제 B 상품 skin USD 의 텍스처 참조를 자기 폴더의 상대경로로 다시 쓴다 (stage 안에서).
 
-대회 환경 저장소는 여러 해 쌓인 이름을 그대로 들고 있다 -- `props/convstore/taskB_products`,
-`our_scan_data`, `Table`, `taskb_orientation.json`. 참가자에게 주는 트리는 그러면 안 되고,
-무엇보다 **같은 상품이 두 곳에 200 MB씩 들어 있으면 안 된다.**
+상품 skin USD 가 색 텍스처를 개발 머신의 **절대경로**로 물고 있으면, 바로 옆에 같은
+그림이 있어도 그쪽을 보지 않는다 -- 텍스처가 빠진 채 평가 두 판을 돌리고 나서야
+발견된 함정이다 (2026-08-25 이전 파이프라인의 기록). 이 스크립트는 stage 로 추려진
+사본의 그 경로들을 `./textures/<이름>` 상대경로로 바꿔 써서, 상품 폴더 하나만 있으면
+색이 따라오게 만든다. 이미 상대경로라면 같은 값으로 다시 쓸 뿐이라 해가 없다.
 
-## 중복이 왜 있었나 (2026-08-25 측정)
+에셋 재배치는 하지 않는다 -- 과제 B 씬이 매장 전체를 스폰하게 되면서(2026-08-25)
+convstore 트리를 원본 경로 그대로 배포하므로, 옮길 것도 경로 상수를 고칠 것도 없다.
 
-`our_scan_data/<이름>/` 과 `props/convstore/taskB_products/<이름>/` 은 36 개 상품이 md5
-단위로 **동일**했다. 둘 다 필요했던 이유는 하나뿐이다: 상품의 skin USD 가 색 텍스처를
-**절대경로**로 물고 있었다.
-
-    inputs:diffuse_texture =
-      '/workspace/cyclo_lab/source/cyclo_lab/data/our_scan_data/<이름>/textures/material_0.png'
-
-바로 옆에 같은 그림이 있는데도 그쪽을 안 본다. 그래서 `our_scan_data` 를 통째로 같이
-넣어야만 상품에 색이 입었다. (이 함정은 `scripts/tools/eval_ckpt_fleet.py:85` 에 이미
-기록돼 있다 -- 텍스처가 빠진 채 평가 두 판을 돌리고 나서야 발견됐다.)
-
-이 스크립트는 그 경로를 **상대경로**로 다시 써넣는다. 그러면 사본 한 벌만 남는다.
-
-## 만들어지는 트리
-
-    data/
-      robot/ffw_sg2.usd
-      fixtures/
-        shelf/shelf.usd + 재질 맵 4 장
-        table/table.usd
-        crate/crate.usd
-      products/                과제 B 가 쓰는 상품 36 개
-        manifest.json      크기·무게·콜라이더·usd 상대경로
-        orientation.json   어느 면이 위인가
-        display_yaw.json   진열될 때 몇 도 돌아가는가
-        shapes.json        상자냐 원통이냐 -- 상자 안에서 어떻게 눕는지를 정한다
-        <이름>/
-          <이름>.usd        스폰되는 것. ./<이름>_skin.usd 를 상대참조한다
-          <이름>_skin.usd   보이는 메시와 재질
-          textures/albedo.png
-      store/                   매장 자체의 정의 -- 진열대·냉장고 20 종과 거기 놓이는
-        manifest.json          상품 35 종의 목록. 과제 B 는 쓰지 않지만 환경 코드가
-        layout.json            import 할 때 읽으므로 들어간다(48 KB). 위 products 와
-                               이름이 하나도 겹치지 않는 별개의 집합이다.
-
-버려지는 것: `our_scan_data/`(중복), FFW-SH5 와 OMY 로봇 USD(과제 B 가 안 쓴다),
-Table 의 CAD 원본(`.3MF`/`.step`/`_mesh.json`/`.glb`), 변환 부산물(`config.yaml`,
-`.asset_hash`), 매장 `layout.json`.
-
-pxr 은 Isaac Sim 을 띄우지 않고도 쓸 수 있다 -- extscache 의 omni.usd.libs 를
-PYTHONPATH/LD_LIBRARY_PATH 에 얹으면 import 된다. build_image.sh 가 그렇게 부른다.
+pxr 은 Isaac Sim 을 띄우지 않고도 쓸 수 있다 -- build_image.sh 가 그렇게 부른다.
 """
 
 import json
@@ -56,17 +19,8 @@ import sys
 
 from pxr import Sdf
 
-RAW = sys.argv[1]      # 원본에서 그대로 추린 트리
-OUT = sys.argv[2]      # 여기에 깨끗한 트리를 만든다
-
-DATA = f"{RAW}/source/cyclo_lab/data"
-PROPS = f"{DATA}/props/convstore"
-SRC_PRODUCTS = f"{PROPS}/taskB_products"
-
-
-def copy(src, dst):
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-    shutil.copy2(src, dst)
+STAGE = sys.argv[1]
+PRODUCTS_DIR = f"{STAGE}/source/cyclo_lab/data/props/convstore/taskB_products"
 
 
 def texture_specs(layer):
@@ -97,22 +51,16 @@ def texture_specs(layer):
     return out
 
 
-def retexture(src_dir, skin_usd):
-    """상품 하나의 그림들을 옆에 두고, USD 가 그 자리를 상대경로로 보게 만든다.
+def retexture(product_dir, skin_usd):
+    """상품 하나의 텍스처 참조를 ./textures/<이름> 으로 다시 쓴다. 고친 곳 수를 돌려준다.
 
-    파일 **하나하나를 대응시킨다.** 예전에는 눈에 띈 속성을 전부 albedo 로 덮었는데,
-    그건 상품이 색 말고 다른 맵을 갖게 되는 순간 그 맵을 조용히 잃는 방식이다.
-    실제로 pringles_original_large 는 diffuse 와 opacity 를 둘 다 갖고 있다(둘 다 같은
-    파일을 가리키므로 결과는 같았지만, 같으리라는 보장은 어디에도 없었다).
-
-    돌려주는 것: [(속성 경로, 원래 경로, 새 경로)].
+    파일 하나하나를 대응시킨다 -- 색 지도는 albedo.png 라는 이름을 갖고, 그 밖의 맵이
+    있으면 원래 파일 이름을 그대로 쓴다. 원래 그림이 상품 폴더에 없으면 실패한다.
     """
     layer = Sdf.Layer.FindOrOpen(skin_usd)
     if layer is None:
         raise RuntimeError(f"열 수 없다: {skin_usd}")
 
-    # 원본 그림 하나 = 배포 그림 하나. 색 지도는 albedo.png 라는 이름을 갖고,
-    # 그 밖의 맵이 있으면 원래 파일 이름을 그대로 쓴다.
     renamed = {}
     for _attr, raw in texture_specs(layer):
         if raw in renamed:
@@ -120,16 +68,18 @@ def retexture(src_dir, skin_usd):
         base = os.path.basename(raw)
         renamed[raw] = "albedo.png" if base == "material_0.png" else base
 
-    changed = []
+    changed = 0
     for attr, raw in texture_specs(layer):
         new_name = renamed[raw]
-        source = os.path.join(src_dir, "textures", os.path.basename(raw))
+        source = os.path.join(product_dir, "textures", os.path.basename(raw))
         if not os.path.isfile(source):
             raise RuntimeError(
                 f"{skin_usd} 가 {raw} 를 물고 있는데 그 그림이 상품 폴더에 없다: {source}")
-        copy(source, os.path.join(os.path.dirname(skin_usd), "textures", new_name))
+        dst = os.path.join(product_dir, "textures", new_name)
+        if os.path.abspath(source) != os.path.abspath(dst):
+            shutil.copy2(source, dst)
         attr.default = Sdf.AssetPath(f"./textures/{new_name}")
-        changed.append((str(attr.path), raw, new_name))
+        changed += 1
 
     if not changed:
         raise RuntimeError(f"{skin_usd} 에 고칠 텍스처 경로가 없다 -- "
@@ -139,66 +89,12 @@ def retexture(src_dir, skin_usd):
 
 
 def main():
-    if os.path.isdir(OUT):
-        shutil.rmtree(OUT)
-
-    # ---------------------------------------------------------------- 로봇
-    copy(f"{DATA}/robots/FFW/FFW_SG2.usd", f"{OUT}/robot/ffw_sg2.usd")
-    print("[robot]    ffw_sg2.usd")
-
-    # ---------------------------------------------------------------- 픽스처
-    # 진열대의 재질 맵 4 장은 USD 가 파일 이름으로 참조하므로 이름을 그대로 둔 채 옮긴다.
-    shelf_src = f"{PROPS}/fixtures/shelf_taskB"
-    for f in sorted(os.listdir(shelf_src)):
-        dst = "shelf.usd" if f == "shelf_taskB.usd" else f
-        copy(f"{shelf_src}/{f}", f"{OUT}/fixtures/shelf/{dst}")
-    copy(f"{DATA}/Table/Table.usd", f"{OUT}/fixtures/table/table.usd")
-    copy(f"{DATA}/Crate/blue_box.usd", f"{OUT}/fixtures/crate/crate.usd")
-    print("[fixtures] shelf/ table/ crate/")
-
-    # ---------------------------------------------------------------- 상품
-    with open(f"{SRC_PRODUCTS}/manifest.json", encoding="utf-8") as fh:
+    with open(f"{PRODUCTS_DIR}/manifest.json", encoding="utf-8") as fh:
         products = json.load(fh)["products"]
-    names = sorted(products)
-    total_rewritten = 0
-    for name in names:
-        src = f"{SRC_PRODUCTS}/{name}"
-        dst = f"{OUT}/products/{name}"
-        copy(f"{src}/{name}.usd", f"{dst}/{name}.usd")
-        copy(f"{src}/{name}_skin.usd", f"{dst}/{name}_skin.usd")
-        # 그림은 retexture 가 옮긴다 -- USD 가 실제로 물고 있는 것만 따라가야 하고,
-        # 안 쓰이는 파일을 같이 넣지 않기 위해서다.
-        changed = retexture(src, f"{dst}/{name}_skin.usd")
-        total_rewritten += len(changed)
-        # 매니페스트의 usd 경로도 새 자리로. convstore_store._usd() 가 PROPS + 이 값을 쓴다.
-        products[name]["usd"] = f"{name}/{name}.usd"
-        # GraspGen 파일 경로는 배포판에 없는 것을 가리키므로 지운다.
-        products[name].pop("grasp_sim_yaml", None)
-
-    with open(f"{OUT}/products/manifest.json", "w", encoding="utf-8") as fh:
-        json.dump({"products": products}, fh, ensure_ascii=False, indent=1)
-    copy(f"{SRC_PRODUCTS}/taskb_orientation.json", f"{OUT}/products/orientation.json")
-    copy(f"{SRC_PRODUCTS}/taskb_display_yaw.json", f"{OUT}/products/display_yaw.json")
-    # 이름이 grasp_filter 라서 GraspGen 잔재로 보이지만 아니다 -- 상품마다 "상자냐 원통이냐"
-    # 를 담고 있고, 그 분류가 상자 안에서 상품이 어떻게 눕는지를 정한다. 한 번 빼 봤다가
-    # taskB_restock._shape() 가 FileNotFoundError 로 죽었다(2026-08-25).
-    copy(f"{SRC_PRODUCTS}/grasp_filter.json", f"{OUT}/products/shapes.json")
-
-    # ---------------------------------------------------------------- 매장 정의
-    # 상품 매니페스트와 **합치지 않는다.** 담는 것이 다르고(매장 픽스처 20 종 + 거기
-    # 놓이는 상품 35 종 대 과제 B 상품 36 개), 이름이 하나도 겹치지 않는다. 합치면
-    # 과제 B 의 진열대 추첨 판이 매장 상품까지 끌어들여 씬이 조용히 달라진다.
-    # 과제 B 가 쓰지 않는데도 넣는 이유는 하나뿐이다: cyclo_lab 을 import 하면 매장 씬
-    # 설정(convstore.py)이 함께 읽히고, 이 파일이 없으면 KeyError 로 죽는다(2026-08-25).
-    copy(f"{PROPS}/manifest.json", f"{OUT}/store/manifest.json")
-    copy(f"{PROPS}/layout.json", f"{OUT}/store/layout.json")
-    print("[store]    manifest.json layout.json")
-    print(f"[products] {len(names)} 개, 텍스처 경로 {total_rewritten} 곳을 "
-          f"./textures/albedo.png 로 다시 썼다")
-
-    size = sum(os.path.getsize(os.path.join(r, f))
-               for r, _d, fs in os.walk(OUT) for f in fs)
-    print(f"[done]     {size / 1e6:.0f} MB")
+    total = 0
+    for name in sorted(products):
+        total += retexture(f"{PRODUCTS_DIR}/{name}", f"{PRODUCTS_DIR}/{name}/{name}_skin.usd")
+    print(f"[retexture] 상품 {len(products)} 개, 텍스처 경로 {total} 곳을 상대경로로 다시 썼다")
 
 
 main()
