@@ -1,0 +1,16 @@
+{
+ "destinations": [
+  {
+   "name": "shelf_target",
+   "x": -0.1003,
+   "y": 2.5588,
+   "yaw": 0.0,
+   "note": "Fix_shelf_taskB face at x=0.913; standoff 1.014 m so the CARRIED crate clears it. MOVED AGAIN 2026-08-21: y 2.350 -> 2.5588, x -0.0366 -> -0.1003, which puts the goal 0.900 m from the desk instead of 0.682 m. The 2026-08-20 move the other way was made so task 3 could place BY TURNING ALONE, and that premise turned out to be false -- the place rolls forward 0.11-0.235 m in every episode measured, because the approach drives until the desk sits at the crate's own forward offset. What the 0.682 m did cost is real: the base cover measures -0.403..+0.225 m fore-aft and +-0.301 m across (FFW_SG2.usd, base_mobile_assy), so its REAR corner reaches 0.503 m from the base centre, and turning on the spot at 0.682 m drove that corner 41.9 mm into the desk's floor plate. At 0.900 m the worst heading clears by 166 mm, and still by 70 mm at 0.800 m -- which is where the 0.10 m arrival tolerance and the 0.10 m task-3 spawn disc can put it. Everything else improved too: the drivable-zone margin went from 70 mm to 250 mm and the shelf standoff from 0.950 m to 1.014 m.",
+   "desk_xy": [
+    0.1616,
+    1.6975
+   ],
+   "desk_note": "THE DESK THAT ACTUALLY SPAWNS, and it did NOT move on 2026-08-21 -- the goal moved away from it. Carried over from task B (taskB_table.py, whose own note says the position is the user's and must not be changed unasked) and written down here so every reader takes it from ONE file. The goal now sits 0.900 m from it; the place closes that to the crate's own forward offset (~0.487 m) by driving, which is measured per episode rather than assumed."
+  }
+ ]
+}

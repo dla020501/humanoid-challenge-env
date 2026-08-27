@@ -82,22 +82,11 @@ PATCHES = [
      "로봇"),
 
     # ---------------------------------------------------------------- 과제 A
-    # 원본 저장소에서는 이 셋이 `props/convstore/` 와 저장소 루트의 `fixture_kit/` 에
-    # 흩어져 있다. 배포 트리에서는 전부 `data/store/` 아래로 모인다.
-    (f"{PKG}/assets/object/taskA_seats.py",
-     'MEASURED = _DATA / "props" / "convstore" / "eatin_measured.json"',
-     'MEASURED = _DATA / "store" / "eatin_measured.json"',
-     "시식 코너 실측값 -- 12 좌석이 여기서 나온다"),
-
-    (f"{PKG}/assets/object/taskA_layout.py",
-     '_DESTINATIONS = f"{_PROPS}/destinations.json"',
-     '_DESTINATIONS = f"{_DATA}/store/destinations.json"',
-     "목적지와 책상 자리"),
-
-    (f"{PKG}/assets/object/taskA_layout.py",
-     'STORE_USD = f"{_REPO}/fixture_kit/out/store_scene.usd"',
-     'STORE_USD = f"{_DATA}/store/scene/fixture_kit/out/store_scene.usd"',
-     "매장 USD -- 참조가 전부 상대경로라 원본 배치를 그대로 옮겼다"),
+    # 여기에 항목이 없는 것이 맞다. 과제 A 의 장면 정의 모듈(`taskA_*.py`)과 실측값 JSON 은
+    # 이미지가 아니라 **이 저장소의 `scripts/taskA/`** 에 산다 -- `scripts/` 가 마운트라
+    # `git pull` 만으로 갱신되고, 참가자가 코드를 바로 읽을 수 있기 때문이다.
+    # 이미지가 과제 A 를 위해 품는 것은 매장 USD(184 MB) 하나뿐이고, 그것은 경로를 고칠
+    # 것이 없다 -- `reshape_assets.copy_scene()` 이 원본 배치를 그대로 옮긴다.
 ]
 
 

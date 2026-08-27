@@ -1,0 +1,212 @@
+{
+  "store_usd": "fixture_kit/out/store_scene.usd",
+  "table_centres": [
+    [
+      -9.75,
+      3.9
+    ],
+    [
+      -9.75,
+      1.0
+    ],
+    [
+      -9.75,
+      -1.9
+    ]
+  ],
+  "sets": [
+    {
+      "index": 0,
+      "centre": [
+        -9.75,
+        3.9
+      ],
+      "n_prims": 20,
+      "table": {
+        "path": "/World/Kit_03_eatin_r/Table",
+        "radius": 0.5242,
+        "top_z": 0.75,
+        "centre": [
+          -9.75,
+          3.9
+        ]
+      },
+      "stools": [
+        {
+          "path": "/World/Kit_03_eatin_r/Stool_2",
+          "centre": [
+            -9.4378,
+            3.6779
+          ],
+          "radius": 0.1545,
+          "top_z": 0.4608,
+          "r_from_table": 0.3832,
+          "angle_deg": 324.57
+        },
+        {
+          "path": "/World/Kit_03_eatin_r/Stool_0",
+          "centre": [
+            -9.7624,
+            4.2911
+          ],
+          "radius": 0.1883,
+          "top_z": 0.4608,
+          "r_from_table": 0.3913,
+          "angle_deg": 91.82
+        },
+        {
+          "path": "/World/Kit_03_eatin_r/Stool_1",
+          "centre": [
+            -10.1174,
+            4.0433
+          ],
+          "radius": 0.1762,
+          "top_z": 0.4608,
+          "r_from_table": 0.3944,
+          "angle_deg": 158.69
+        },
+        {
+          "path": "/World/Kit_03_eatin_r/Stool_3",
+          "centre": [
+            -9.3793,
+            4.0446
+          ],
+          "radius": 0.1761,
+          "top_z": 0.4608,
+          "r_from_table": 0.3979,
+          "angle_deg": 21.31
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "centre": [
+        -9.75,
+        1.0
+      ],
+      "n_prims": 21,
+      "table": {
+        "path": "/World/Kit_04_eatin_r/Table",
+        "radius": 0.5242,
+        "top_z": 0.75,
+        "centre": [
+          -9.75,
+          1.0
+        ]
+      },
+      "stools": [
+        {
+          "path": "/World/Kit_04_eatin_r/Stool_3",
+          "centre": [
+            -9.3774,
+            0.8772
+          ],
+          "radius": 0.1789,
+          "top_z": 0.4608,
+          "r_from_table": 0.3923,
+          "angle_deg": 341.76
+        },
+        {
+          "path": "/World/Kit_04_eatin_r/Stool_2",
+          "centre": [
+            -9.5527,
+            0.6598
+          ],
+          "radius": 0.1625,
+          "top_z": 0.4608,
+          "r_from_table": 0.3933,
+          "angle_deg": 300.11
+        },
+        {
+          "path": "/World/Kit_04_eatin_r/Stool_1",
+          "centre": [
+            -9.6941,
+            1.3907
+          ],
+          "radius": 0.1868,
+          "top_z": 0.4608,
+          "r_from_table": 0.3947,
+          "angle_deg": 81.86
+        },
+        {
+          "path": "/World/Kit_04_eatin_r/Stool_0",
+          "centre": [
+            -9.4076,
+            1.2021
+          ],
+          "radius": 0.1627,
+          "top_z": 0.4608,
+          "r_from_table": 0.3976,
+          "angle_deg": 30.55
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "centre": [
+        -9.75,
+        -1.9
+      ],
+      "n_prims": 20,
+      "table": {
+        "path": "/World/Kit_05_eatin_r/Table",
+        "radius": 0.5242,
+        "top_z": 0.75,
+        "centre": [
+          -9.75,
+          -1.9
+        ]
+      },
+      "stools": [
+        {
+          "path": "/World/Kit_05_eatin_r/Stool_1",
+          "centre": [
+            -9.5315,
+            -2.2121
+          ],
+          "radius": 0.1547,
+          "top_z": 0.4608,
+          "r_from_table": 0.381,
+          "angle_deg": 305.0
+        },
+        {
+          "path": "/World/Kit_05_eatin_r/Stool_2",
+          "centre": [
+            -9.3714,
+            -1.8237
+          ],
+          "radius": 0.185,
+          "top_z": 0.4608,
+          "r_from_table": 0.3862,
+          "angle_deg": 11.39
+        },
+        {
+          "path": "/World/Kit_05_eatin_r/Stool_0",
+          "centre": [
+            -10.0626,
+            -2.1391
+          ],
+          "radius": 0.1492,
+          "top_z": 0.4608,
+          "r_from_table": 0.3935,
+          "angle_deg": 217.41
+        },
+        {
+          "path": "/World/Kit_05_eatin_r/Stool_3",
+          "centre": [
+            -9.7238,
+            -1.4995
+          ],
+          "radius": 0.188,
+          "top_z": 0.4608,
+          "r_from_table": 0.4013,
+          "angle_deg": 86.26
+        }
+      ]
+    }
+  ],
+  "table_radius_max": 0.5242,
+  "table_top_z_max": 0.75,
+  "stool_radius_max": 0.1883,
+  "stool_dist_from_table": 0.3922
+}

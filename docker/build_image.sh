@@ -89,7 +89,7 @@ KEEP=(
   # 실측 2026-08-25: fixture_kit 에서 stage 로 347 MB 를 옮겨, 그중 이미지에 들어가는 것은
   # 191 MB (파일 274 개)다. 나머지는 4 단계 뒤 stage 에서 통째로 버린다.
   #
-  # 좌석 실측값과 목적지도 여기 들어간다. 둘 다 참가자 데모가 장면을 세우는 데 쓴다.
+  # 좌석 실측값과 목적지 JSON 은 여기 없다 -- 그 둘은 `scripts/taskA/` 에 산다.
   # `out/scenes` 가 아니라 `out` 통째다. 2026-08-25 에 scenes 만 넣었다가 곤돌라의
   # **가격표 그림 24 장**(`shelf_random_kit/out/price_pops/`)이 조용히 빠졌다 -- 씬은
   # 열리고 진열대도 서는데 가격표만 회색이 된다. 어느 킷이 out/ 어디에 무엇을 두는지는
@@ -105,8 +105,6 @@ KEEP=(
   fixture_kit/liquor_shelf_kit/out
   fixture_kit/shelf_random_kit/assets
   fixture_kit/shelf_random_kit/out
-  source/cyclo_lab/data/props/convstore/eatin_measured.json
-  source/cyclo_lab/data/props/convstore/destinations.json
 )
 
 echo "[1/5] stage 를 비운다: $STAGE"

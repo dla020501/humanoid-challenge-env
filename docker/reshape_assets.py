@@ -41,8 +41,6 @@
         layout.json              매장 배치. 위 products 와는 이름이 하나도 겹치지 않는
                                  별개의 집합이다. 과제 B 는 쓰지 않지만 환경 코드가
                                  import 할 때 읽으므로 들어간다(48 KB).
-        eatin_measured.json      시식 코너 실측값 -- 과제 A 의 12 좌석이 여기서 나온다
-        destinations.json        과제 A 의 목적지. 진짜 하나만 (아래 copy_destinations)
         scene/                   매장 **자체** (191 MB). 과제 A 는 편의점을 가로지르므로
                                  그림이 있어야 한다. 이 아래만은 원본의 상대 배치를 그대로
                                  지킨다 -- 이유는 copy_scene 의 주석에 있다.
@@ -266,24 +264,6 @@ def copy_scene():
           f"{size / 1e6:.0f} MB")
 
 
-def copy_destinations():
-    """목적지 정의. **진짜 하나만** 담는다.
-
-    원본에는 하드 네거티브용 가짜 목적지 열 곳이 함께 들어 있다. 그것은 수집 때 "진열대가
-    비어 있으니 저기가 목표" 같은 지름길을 막으려고 만든 학습용 장치이지 장면의 일부가
-    아니다. 참가자 환경은 진짜 목적지 하나와 그 옆 책상 하나만 세운다.
-    """
-    with open(f"{PROPS}/destinations.json", encoding="utf-8") as fh:
-        rows = json.load(fh)["destinations"]
-    real = [r for r in rows if not r.get("fake")]
-    if len(real) != 1:
-        raise RuntimeError(f"진짜 목적지가 1 개가 아니라 {len(real)} 개다")
-    os.makedirs(f"{OUT}/store", exist_ok=True)
-    with open(f"{OUT}/store/destinations.json", "w", encoding="utf-8") as fh:
-        json.dump({"destinations": real}, fh, ensure_ascii=False, indent=1)
-    print(f"[store]    destinations.json -- 진짜 1 개 (가짜 {len(rows) - 1} 개는 뺐다)")
-
-
 def main():
     if os.path.isdir(OUT):
         shutil.rmtree(OUT)
@@ -343,8 +323,6 @@ def main():
     # ---------------------------------------------------------------- 과제 A 의 매장
     # 위의 manifest/layout 은 매장을 **말로** 적은 것이고, 아래는 매장 **자체**다.
     # 과제 A 는 편의점을 가로지르므로 그림이 있어야 한다.
-    copy(f"{PROPS}/eatin_measured.json", f"{OUT}/store/eatin_measured.json")
-    copy_destinations()
     copy_scene()
     print(f"[products] {len(names)} 개, 텍스처 경로 {total_rewritten} 곳을 "
           f"./textures/albedo.png 로 다시 썼다")

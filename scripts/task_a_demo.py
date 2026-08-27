@@ -87,6 +87,21 @@ if not os.path.isdir(_SRC):
     raise SystemExit(f"환경 코드를 찾지 못했다: {_SRC}\n"
                      f"CYCLOLAB_PATH 를 확인하라 (현재 {CYCLOLAB!r}).")
 
+# 과제 A 의 장면 정의 모듈은 **이 저장소 안**, 이 파일 옆의 `taskA/` 에 있다.
+#
+# 이미지 안이 아니라 여기 두는 이유 셋:
+#   * `scripts/` 는 마운트라 `git pull` 만으로 갱신된다. 이미지를 다시 굽지 않아도 된다.
+#   * 참가자가 장면이 어떻게 서는지 GitHub 에서 바로 읽을 수 있다. 35 GB 컨테이너에
+#     들어가야만 보이는 코드는 없는 것과 비슷하다.
+#   * 이 저장소만 받으면 데모가 도는 데 필요한 코드가 전부 있다. 다른 저장소의 커밋 여부에
+#     기대지 않는다.
+#
+# 이미지에서 오는 것은 **에셋뿐**이다 -- 매장 USD 184 MB, 로봇, 집기. 저장소에 둘 크기가
+# 아니고, 매장 USD 는 참조 94 개를 상대경로로 물고 있어 통째로 옮겨야 한다.
+_TASKA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "taskA")
+if not os.path.isdir(_TASKA):
+    raise SystemExit(f"과제 A 모듈을 찾지 못했다: {_TASKA}")
+
 
 def _by_path(name, path):
     """모듈을 경로로 읽는다.
@@ -103,8 +118,8 @@ def _by_path(name, path):
     return mod
 
 
-taskA_seats = _by_path("taskA_seats", f"{_SRC}/assets/object/taskA_seats.py")
-taskA_layout = _by_path("taskA_layout", f"{_SRC}/assets/object/taskA_layout.py")
+taskA_seats = _by_path("taskA_seats", f"{_TASKA}/taskA_seats.py")
+taskA_layout = _by_path("taskA_layout", f"{_TASKA}/taskA_layout.py")
 
 # 물리 한 걸음. 과제 B 와 같은 값이다.
 #
@@ -312,9 +327,9 @@ from cyclo_lab.assets.robots.FFW_SG2 import (                         # noqa: E4
 )
 
 # pxr / isaaclab 을 쓰는 셋은 여기서 읽는다 -- AppLauncher 앞에서 읽으면 Isaac Sim 이 뜨지 않는다.
-taskA_colliders = _by_path("taskA_colliders", f"{_SRC}/assets/object/taskA_colliders.py")
-taskA_stools = _by_path("taskA_stools", f"{_SRC}/assets/object/taskA_stools.py")
-robot_pose = _by_path("taskA_robot_pose", f"{_SRC}/assets/object/taskA_robot_pose.py")
+taskA_colliders = _by_path("taskA_colliders", f"{_TASKA}/taskA_colliders.py")
+taskA_stools = _by_path("taskA_stools", f"{_TASKA}/taskA_stools.py")
+robot_pose = _by_path("taskA_robot_pose", f"{_TASKA}/taskA_robot_pose.py")
 
 LEFT_JOINTS = [f"arm_l_joint{i + 1}" for i in range(7)]
 RIGHT_JOINTS = [f"arm_r_joint{i + 1}" for i in range(7)]
