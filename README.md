@@ -27,6 +27,7 @@ scripts/      주최측 제공 스크립트 — 씬 생성기(task 별)와 데�
               컨테이너의 /workspace/challenge_scripts 로 붙습니다
   taskA/          과제 A 의 장면 정의 — 12 좌석, 목적지, 스툴, 실측값. 읽어 보셔도 됩니다
   demos/          과제 B 시연 기록 일곱 판. task_b_replay.py 가 읽습니다
+  taskb_score.py  과제 B 채점기 — 평가표(상품 하나 15항목 30점)대로 기록을 채점합니다. 재생기가 씁니다
   demo_server/    채점과 같은 방식으로 정책 서버를 붙여 보는 데모 평가 서버 (준비 중)
 run/          실행 진입점. run_gui.sh 가 GUI 로 컨테이너를 띄우고,
               run_task_*.bash 가 해당 과제의 씬을 랜덤하게 하나 생성해 띄웁니다 (준비 중)
@@ -289,6 +290,46 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
 기록에서 그대로 써 넣습니다. 로봇과 상품이 어디 있었는지는 정확하지만, 접촉은
 보여 주지 못합니다 -- 상품이 손가락에 눌려 딸려 오는 것이 아니라 상품도 제자리에
 놓입니다. 자세한 것은 [`scripts/README.md`](scripts/README.md) 에 있습니다.
+
+### 재생 중 점수가 찍힙니다
+
+과제 B 의 평가표는 **상품 하나에 15항목 30점**입니다. 재생기는 `scripts/taskb_score.py` 로
+그 기록을 채점해 두고, 재생 중 그 일이 일어나는 순간에 `[점수]` 줄로 알립니다.
+
+```
+[점수] 채점 대상 samyang_buldak_cup → 목표 칸 L2 c2 · 평가표 15항목 30점
+[점수]    8.3초  product 에 닿았는가             +1   누적  1/30
+[점수]   10.3초  product 를 들어올렸는가           +2   누적  3/30
+[점수]   10.4초  product 를 상자 밖으로 꺼냈는가      +3   누적  6/30
+   ...
+[점수]  113.3초  ── 놓은 뒤 3초 ──
+[점수]          어느 칸에 넣었는가                 +4/4   칸 (2, 2) 좌우 -3 mm
+   ...
+[점수] ════ 최종 29 / 30 점 ════
+```
+
+판정은 두 가지뿐입니다. **[한 번이라도]** — 닿았는가 · 들어올렸는가 · 상자 밖으로 꺼냈는가 ·
+선반 앞까지 · 목표 층 높이까지 · 목표 칸 앞까지 — 는 판이 도는 내내 보고 처음 참이 된 순간에
+점수를 주며 뒤에 뺏지 않습니다. **[놓은 뒤 3초]** — 떨어뜨리지 않았는가 · 목표 층 · 어느 칸 ·
+서 있는가 · 방향 · 앞줄 · 멈췄는가 · 상자 제자리 · 다른 상품 그대로 — 는 잡고 있던 손의
+gripper 가 열린 순간 + 3초에 한 번 봅니다. 상품이 바닥·탁자·상자에 떨어져 멈추면 **그 순간
+채점이 끝나고** 그때까지 딴 점수만 남습니다. 감점은 없습니다.
+
+일곱 판의 점수입니다 (이 채점기로 잰 값):
+
+| `--seed` | 상품 | 점수 | 못 받은 것 |
+|---:|---|---:|---|
+| 0 | Buldak stir-fried noodle cup | 29 / 30 | 방향 (뒷줄과 yaw 107°) |
+| 1 | small sour cream Pringles tube | 30 / 30 | |
+| 2 | Yegam original potato chip tube | 30 / 30 | |
+| 3 | baked sweet potato snack box | 30 / 30 | |
+| 4 | Jin Ramen hot cup | 30 / 30 | |
+| 5 | Butter Ring biscuit box | 27 / 30 | 서 있는가 (뒤집힘 178°) · 방향 |
+| 6 | Cereal Choco biscuit box | 27 / 30 | 서 있는가 (뒤집힘 179°) · 방향 |
+
+채점기는 혼자서도 돕니다 -- `python3 scripts/taskb_score.py scripts/demos/demo_00.npz` (Isaac
+없이, numpy 만). 항목마다 무엇을 어떻게 재는지는 그 파일의 `RUBRIC` · `THRESHOLD` 와
+[`scripts/README.md`](scripts/README.md) 에 있습니다.
 
 ## 환경 안의 에셋
 

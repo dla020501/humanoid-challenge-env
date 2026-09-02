@@ -1,0 +1,631 @@
+# Copyright 2025.
+#
+# 과제 B 궤적 채점기 -- `평가표.xlsx` 의 Task-B 시트를 그대로 코드로 옮긴 것.
+#
+# 상품 하나에 15항목 30점이다. 판정은 시트가 정한 두 가지뿐이다:
+#
+#   [한 번이라도]  판이 도는 내내 보고, 한 번이라도 참이면 점수. 뒤에 무슨 일이 생겨도 뺏지 않는다.
+#   [그 시점에]    채점 종료의 한 순간에 한 번만 보고 판정한다.
+#
+# 감점 항목은 없다. 문턱값과 무엇을 재는지는 시트의 H열("simulation 평가 로직 구현 관련")에서
+# 왔고, 아래 THRESHOLD 에 한 곳으로 모았다. 시트가 「아직 안 잰 값」이라 표시한 다섯
+# (30 mm · 300 mm · 15° · 45° · 45°) 은 2026-09-03 에 잰 결과를 그 옆에 적었다.
+#
+# 채점 로직(ProductScorer)은 Isaac 을 모른다 -- numpy 와 기하 상수만 쓴다. 그래서 입구가 둘이다:
+#
+#   score_npz(path)      state npz(task_b_episode.py 가 쓰는 것, humanoid-challenge-env 의
+#                        demos/demo_*.npz 도 같은 형식)를 읽어 프레임을 먹인다. 접촉력은 없지만
+#                        B6 는 상품이 상자 안에서 움직였는가(또는 들렸는가)로 재서 30점 만점이다.
+#   ProductScorer 직접   판이 도는 중에 프레임마다 .update() 를 부르고, 놓은 뒤 3초에 .finish().
+#                        접촉 센서 값(contact_N)을 주면 B6 는 그것으로도 참이 된다.
+#
+# 채점 종료는 시트대로 둘뿐이다. 둘 다 채점기가 스스로 찾는다:
+#   놓은 뒤 3초   잡고 있던 손의 gripper 가 열리는 프레임 + 3초 (score_npz 가 관절 기록에서 찾는다)
+#   떨어짐        상자 밖으로 나온 뒤 어느 판에도 안 놓인 채 테두리 아래에서 3초 멈춰 있는 순간. 그 뒤는 안 본다
+#
+# 시트와 다르게 둔 것 셋 -- 전부 사용자 결정 2026-09-03, THRESHOLD 옆에 적혀 있다:
+#   B15 서 있는가   진열 자세 15° 가 아니라 뒷줄 같은 상품의 z 축과 같은 쪽(< 90°)
+#   B16 방향        45° 가 아니라 뒷줄 같은 상품 기준 ±90°
+#   B9~B11 사다리   상자 밖으로 꺼낸(B8) 뒤부터 센다 (3층 목표에서 상자 속 상품이 프레임 0에 B10 을 넘던 구멍)
+#
+# 이 파일은 저장소의 다른 코드를 부르지 않는다. taskB_shelf / taskB_restock / taskB_table 세 모듈은
+# 패키지 __init__ 을 타지 않고 파일 경로로 읽는다 -- 패키지가 isaaclab 과 toml 을 끌어오기 때문이고,
+# humanoid-challenge-env/scripts/task_b_replay.py 가 같은 이유로 같은 방법을 쓴다.
+#
+#   python3 scripts/tools/taskb_score.py <state.npz> [...]         판마다 30점 표
+#   python3 scripts/tools/taskb_score.py --glob '<dir>/*.npz' --json out.json
+
+import argparse
+import glob
+import importlib.util
+import json
+import math
+import os
+import sys
+
+import numpy as np
+
+_REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
+def _object_dir():
+    """세 모듈이 있는 폴더. 이 저장소 안이면 그 자리, 배포 이미지(humanoid-challenge-env)면 $CYCLOLAB_PATH."""
+    for cand in (os.environ.get("CYCLO_OBJECT_DIR"),
+                 f"{_REPO}/source/cyclo_lab/cyclo_lab/assets/object",
+                 f"{os.environ.get('CYCLOLAB_PATH', '/workspace/cyclo_lab')}/source/cyclo_lab/cyclo_lab/assets/object"):
+        if cand and os.path.isfile(f"{cand}/taskB_restock.py"):
+            return cand
+    raise SystemExit("taskB_restock.py 를 찾지 못했다 -- CYCLO_OBJECT_DIR 또는 CYCLOLAB_PATH 를 확인하라")
+
+
+_OBJ = _object_dir()
+
+
+def _by_path(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+taskB_shelf = _by_path("taskB_shelf", f"{_OBJ}/taskB_shelf.py")
+taskB_table = _by_path("taskB_table", f"{_OBJ}/taskB_table.py")
+taskB_restock = _by_path("taskB_restock", f"{_OBJ}/taskB_restock.py")
+
+# ---- 기하 -- 전부 코드에서 읽는다. 여기 적은 숫자는 주석이다 ---------------------------------
+FRONT_X = 0.47                                   # 선반 앞면 x (pick_stance.py:94 FRONT_X)
+BOARD_TOPS = tuple(float(v) for v in taskB_shelf.BOARD_TOPS)   # (0.100, 0.4022, 0.7461, 1.1555, 1.600)
+SHELF_W, SHELF_D = float(taskB_shelf.SIZE[0]), float(taskB_shelf.SIZE[1])   # 0.900 · 0.3566
+CRATE_H = float(taskB_table.CRATE_SIZE[2])       # 0.140 -- 상자 origin 은 바닥이라 테두리 = z + 0.140
+CRATE_FLOOR = float(taskB_table.CRATE_FLOOR)     # 0.0107 -- 상자 안쪽 바닥은 origin 보다 이만큼 위
+CRATE_HALF = (float(taskB_table.CRATE_SIZE[0]) / 2.0, float(taskB_table.CRATE_SIZE[1]) / 2.0)   # 상자 좌표계 반폭
+TABLE_TOP = float(taskB_table.TABLE_TOP)         # 0.725
+TABLE_HALF = (float(taskB_table.TABLE_SIZE[0]) / 2.0, float(taskB_table.TABLE_SIZE[1]) / 2.0)   # 0.3 · 0.3
+COLS = int(taskB_restock.COLS)                   # 3
+CELL_HALF = float(taskB_restock.COL_PITCH) / 2.0  # 0.140 -- 칸 구역: 칸 중심 좌우 140 mm
+FRONT_ROW_X = FRONT_X + taskB_restock.FRONT_MARGIN + taskB_restock.ROW_PITCH / 2.0   # 0.640 -- 앞줄/뒷줄의 금
+
+# ---- 문턱값 -- 시트 H열. ※ 는 시트가 「아직 안 잰 값」이라 표시한 것과 그 실측 ------------------
+THRESHOLD = {
+    "touch_N": 0.5,          # B6  실시간: 팔꿈치 아래 어느 부위든 상품을 이보다 세게 민 순간
+    "touch_moved_mm": 2.0,   # B6  오프라인: 상품이 **상자 좌표계에서** 이만큼 넘게 움직인 순간 (사용자 2026-09-03: "그리퍼가
+                             #     집지 않더라도 부딪히거나 하면 점수"). 상자를 통째로 민 것은 상대 위치가 안 변해 안 걸린다.
+                             #     실측 pick 1,200판: 안 건드린 상품이 판 내내 움직인 최대의 중앙값 0.15 mm (13배 여유),
+                             #     집은 상품은 30 mm 들리기 전에 중앙 23.4 mm 움직임. 들린 것(B7)은 그 자체로 닿은 것이다
+    "lift_mm": 30.0,         # B7  ※ 실측 2026-09-03: 성공한 pick 2,284판의 들어올림 최소 101.8 mm, 30 미만 0판.
+                             #     실패한 pick 은 로컬 표본에 없어 「끌린 것」쪽 분포는 못 쟀다
+    "near_shelf_mm": 300.0,  # B9  ※ 실측: passed 3,133판 x 최대 최소 0.513, refused 164판 중 160판도 넘음.
+                             #     사다리의 첫 칸이라 후한 것이 맞다
+    "upright_deg": 90.0,     # B15 뒷줄 같은 상품의 z 축과 같은 쪽을 보는가 -- 각도 < 90° (사용자 2026-09-03: "z방향이 같으면").
+                             #     ※ 시트의 15° 는 놓은 539판 중 87 만 통과했고, 90° 선은 85~95° 에 263판이 몰린 자리다
+    "facing_deg": 90.0,      # B16 뒷줄 같은 상품 기준 ±90° (사용자 2026-09-03). 서 있을 때(B15 통과)만 본다
+    "still_mm_s": 10.0,      # B18
+    "watch_s": 3.0,          # 시트: 놓은 뒤 3초에 판정한다 · 떨어진 상품이 이만큼 멈춰 있으면 그 순간이 채점 종료
+    "crate_tilt_deg": 45.0,  # B19 ※ 실측: passed 3,133판 중 45° 안 3,127
+    "neighbour_deg": 15.0,   # B20 시트의 「서 있는가」 자(15°)를 진열 자세 기준으로 그대로 쓴다
+}
+
+# ---- 시트 -- id · Sub Task · 배점 · 판정 종류 · 평가 항목(B열 그대로) -------------------------
+RUBRIC = (
+    ("B6", "A-1", 1, "ever", "product 에 닿았는가"),
+    ("B7", "A-1", 2, "ever", "product 를 들어올렸는가"),
+    ("B8", "A-1", 3, "ever", "product 를 상자 밖으로 꺼냈는가"),
+    ("B9", "A-2", 2, "ever", "product 를 선반 앞까지 가져갔는가"),
+    ("B10", "A-2", 2, "ever", "product 를 목표 층 높이까지 올렸는가"),
+    ("B11", "A-2", 2, "ever", "product 를 목표 칸 바로 앞까지 가져갔는가"),
+    ("B12", "A-2", 3, "at", "product 를 끝까지 떨어뜨리지 않았는가"),
+    ("B13", "A-3", 2, "at", "목표 층에 올렸는가"),
+    ("B14", "A-3", 4, "at", "어느 칸에 넣었는가"),
+    ("B15", "A-3", 2, "at", "서 있는가"),
+    ("B16", "A-3", 1, "at", "방향이 맞는가"),
+    ("B17", "A-3", 1, "at", "앞줄인가"),
+    ("B18", "A-3", 1, "at", "멈췄는가"),
+    ("B19", "A-4", 2, "at", "파란색 상자가 탁자 위에 그대로 있는가"),
+    ("B20", "A-4", 2, "at", "선반 위 다른 상품들이 그대로 서 있는가"),
+)
+POINTS = {r[0]: r[2] for r in RUBRIC}
+assert sum(POINTS.values()) == 30
+
+
+# ---- 쿼터니언 (w, x, y, z) -- task_b_episode.py 의 것과 같다 ------------------------------
+def qmul(a, b):
+    aw, ax, ay, az = (float(v) for v in a)
+    bw, bx, by, bz = (float(v) for v in b)
+    return (aw * bw - ax * bx - ay * by - az * bz,
+            aw * bx + ax * bw + ay * bz - az * by,
+            aw * by - ax * bz + ay * bw + az * bx,
+            aw * bz + ax * by - ay * bx + az * bw)
+
+
+def qinv(q):
+    return (float(q[0]), -float(q[1]), -float(q[2]), -float(q[3]))
+
+
+def qrot(q, v):
+    p = qmul(qmul(q, (0.0, float(v[0]), float(v[1]), float(v[2]))), qinv(q))
+    return (p[1], p[2], p[3])
+
+
+def tilt_deg(q, display_quat):
+    """진열 자세에서 하늘을 보는 축이 지금 하늘에서 몇 도 기울었나 (task_b_episode.py:4085 held_tilt)."""
+    up = qrot(qinv(display_quat), (0.0, 0.0, 1.0))
+    return math.degrees(math.acos(max(-1.0, min(1.0, qrot(q, up)[2]))))
+
+
+def up_angle_deg(q, q_ref):
+    """두 자세의 z 축이 벌어진 각도 -- 놓은 상품과 뒷줄 같은 상품이 같은 쪽을 보는가 (B15)."""
+    a, b = qrot(q, (0.0, 0.0, 1.0)), qrot(q_ref, (0.0, 0.0, 1.0))
+    return math.degrees(math.acos(max(-1.0, min(1.0, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))))
+
+
+def yaw_between_deg(q, q_ref):
+    """제자리에서 돌아간 각도 -- 두 자세의 차이 회전에서 수직축 성분만. 둘 다 서 있을 때 뜻이 있다."""
+    w, x, y, z = qmul(q, qinv(q_ref))
+    return abs(math.degrees(math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))))
+
+
+def col_of(y):
+    """좌우 위치가 세 칸 중 어느 칸 구역(칸 중심 ±CELL_HALF)에 드는가. 없으면 None."""
+    for c in range(COLS):
+        if abs(y - slot_y(c)) <= CELL_HALF:
+            return c
+    return None
+
+
+def slot_y(col):
+    return float(taskB_restock.slot_positions(BOARD_TOPS[0], FRONT_X)[col][1])
+
+
+def underside_z(p, q, size):
+    """상품의 밑면 높이 -- 바깥 상자(size)를 지금 자세로 돌려 아래로 얼마나 뻗는지 (task_b_episode.py:5816)."""
+    ax, ay, az = qrot(q, (1.0, 0.0, 0.0)), qrot(q, (0.0, 1.0, 0.0)), qrot(q, (0.0, 0.0, 1.0))
+    half = 0.5 * (abs(ax[2]) * float(size[0]) + abs(ay[2]) * float(size[1]) + abs(az[2]) * float(size[2]))
+    return float(p[2]) - half
+
+
+# 밑면이 판 윗면에서 이 안에 있으면 「판 위에 놓였다」. 위로 15 mm 는 놓인 상품의 잰 분포(통과한 3,150판의
+# 중앙값 -1.0 mm), 아래로 60 mm 는 눕힌 상품의 바깥 상자가 실제 몸통보다 커서 파묻힌 것으로 읽히는 폭
+# (5,155판에서 -15~-41 mm 에 몰림, -41~-100 은 한 판도 없음). 둘 다 task_b_episode.py:5827·5851 의 값이다.
+# 이 자를 안 대면 허공에 든 채 칸 앞에 멈춘 상품이 「칸에 넣었다」로 찍힌다 -- 2026-09-03 대조에서 refused
+# 24판 전부가 그렇게 8점을 받았다.
+ON_BOARD_MM = (-60.0, 15.0)
+
+
+def board_under(p, q, size):
+    """어느 층 판 위에 놓였나. (층, 밑면-판 mm) 를 돌려주고, 어느 판에도 안 놓였으면 (None, 가장 가까운 mm)."""
+    if not (FRONT_X <= p[0] <= FRONT_X + SHELF_D and abs(p[1]) <= SHELF_W / 2.0):
+        return None, None
+    u = underside_z(p, q, size)
+    best = None
+    for k, top in enumerate(BOARD_TOPS[:-1]):
+        d = (u - top) * 1000.0
+        if ON_BOARD_MM[0] <= d <= ON_BOARD_MM[1]:
+            return k, round(d, 1)
+        if best is None or abs(d) < abs(best):
+            best = d
+    return None, round(best, 1)
+
+
+class ProductScorer:
+    """상품 하나(시트의 A)를 채점한다. 프레임마다 update(), 채점 종료에 finish().
+
+    `target` 은 (층, 칸) 이고 `gaps` 는 그 판의 빈 칸 전부 [(층, 칸), ...] (목표 포함) -- 시트의
+    「다른 빈 칸: 2점」을 가르는 데 쓴다. 층은 taskB_shelf.BOARD_TOPS 의 index(시트의 3층 = 2, 4층 = 3),
+    칸은 열 번호 0..2 다.
+
+    `neighbours` 는 {열쇠: (진열 자세 quat, size)} -- 원래 선반에 서 있던 나머지 상품. update 에 같은
+    열쇠로 (pos, quat) 를 넘긴다. `back_key` 는 목표 칸 뒷줄의 같은 상품 열쇠(있으면) -- B16 이 견줄 상대.
+    """
+
+    def __init__(self, name, target, gaps, neighbours, back_key=None, hz=10.0, table_pos=None):
+        self.name = name
+        self.table_pos = None if table_pos is None else tuple(float(v) for v in table_pos)
+        self.watch_frames = max(1, int(round(THRESHOLD["watch_s"] * float(hz))))
+        self.done = False          # 채점 종료 뒤에는 update 가 아무것도 안 한다
+        self.still_low = 0         # 테두리 아래·선반 밖에서 멈춰 있은 프레임 수 (떨어짐 감지)
+        self.layer, self.col = int(target[0]), int(target[1])
+        self.gaps = {(int(a), int(b)) for a, b in gaps}
+        self.display_quat = tuple(float(v) for v in taskB_restock.stock_orientation(name)[1])
+        self.size = tuple(float(v) for v in taskB_restock.product(name)["size"])
+        self.neighbours = dict(neighbours)   # {열쇠: (진열 자세 quat, size)}
+        self.back_key = back_key
+        self.ever = {r[0]: None for r in RUBRIC if r[3] == "ever"}   # 처음 참이 된 프레임 번호
+        self.z0 = None
+        self.rim = None
+        self.in_crate0 = None
+        self.lift_max_mm = 0.0
+        self.moved_max_mm = 0.0
+        self.moved_at_touch_mm = None
+        self.n = 0
+        self.last = None
+        self.result = None
+
+    # ---- [한 번이라도] ----------------------------------------------------------------------
+    def update(self, t, product_pos, product_quat, crate_pos, crate_quat, shelf, contact_N=None,
+               speed_mm_s=None):
+        """프레임 하나. shelf 는 {열쇠: (pos, quat)}. contact_N 은 상품에 단 센서가 읽은 힘(없으면 None).
+
+        떨어짐을 스스로 감지한다: 상자 밖으로 나온 뒤(B8) 상품이 어느 판에도 안 놓인 채 테두리 아래에서
+        watch_s 동안 멈춰 있으면 그 프레임에서 finish("dropped") 를 부르고 `done` 이 된다 -- 시트: "상품이
+        바닥에 떨어지면 그 상품의 평가는 거기서 끝난다. 떨어진 상품을 다시 줍는 것은 허용하지 않는다".
+        그 뒤의 update 는 무시된다.
+        """
+        if self.done:
+            return
+        p = np.asarray(product_pos, dtype=float)
+        # 상품을 상자 좌표계로 -- 상자를 통째로 밀어도 이 값은 안 변하고, 상품을 건드리면 변한다 (B6)
+        in_crate = np.asarray(qrot(qinv(crate_quat), p - np.asarray(crate_pos, dtype=float)), dtype=float)
+        if self.n == 0:
+            self.z0 = float(p[2])
+            self.in_crate0 = in_crate
+            # 테두리 높이는 상수가 아니라 상자가 탁자에 자리 잡은 뒤의 z 에서 잰다 (시트 B8 ※).
+            self.rim = float(crate_pos[2]) + CRATE_H
+        self.lift_max_mm = max(self.lift_max_mm, (float(p[2]) - self.z0) * 1000.0)
+        moved_mm = float(np.linalg.norm(in_crate - self.in_crate0)) * 1000.0
+        self.moved_max_mm = max(self.moved_max_mm, moved_mm)
+        lifted = (float(p[2]) - self.z0) * 1000.0 > THRESHOLD["lift_mm"]
+        hit = {
+            # 닿았다 = 센서가 힘을 읽었거나(실시간), 상자 안에서 움직였거나, 들렸거나(들린 것은 닿은 것이다)
+            "B6": ((contact_N is not None and float(contact_N) > THRESHOLD["touch_N"])
+                   or moved_mm > THRESHOLD["touch_moved_mm"] or lifted),
+            "B7": lifted,
+            "B8": float(p[2]) > self.rim,
+        }
+        # 사다리 순서: 선반 앞 · 목표 층 높이 · 목표 칸 앞은 **상자 밖으로 꺼낸 뒤부터** 센다 (사용자 2026-09-03).
+        # 안 그러면 3층 목표에서는 상자 속에 그냥 놓인 상품(중심 0.755~0.790)이 판 윗면 0.7461 을 이미 넘어
+        # 프레임 0에 B10 을 통과한다.
+        out = self.ever["B8"] is not None or hit["B8"]
+        hit["B9"] = out and float(p[0]) > FRONT_X - THRESHOLD["near_shelf_mm"] / 1000.0
+        hit["B10"] = out and float(p[2]) > BOARD_TOPS[self.layer]
+        # B11 은 앞의 둘이 **같은 프레임에서** 참이면서 좌우가 목표 칸 구역 안일 때다.
+        hit["B11"] = hit["B9"] and hit["B10"] and abs(float(p[1]) - slot_y(self.col)) <= CELL_HALF
+        for k, v in hit.items():
+            if v and self.ever[k] is None:
+                self.ever[k] = int(t)
+                if k == "B6":
+                    self.moved_at_touch_mm = moved_mm
+        self.last = (int(t), p, tuple(float(v) for v in product_quat),
+                     np.asarray(crate_pos, dtype=float), tuple(float(v) for v in crate_quat),
+                     shelf, contact_N, speed_mm_s)
+        self.n += 1
+        # ---- 채점 종료 ①: 떨어짐 = 상자 밖으로 나온 뒤, 어느 판에도 안 놓인 채 **바닥·탁자·상자 바닥 중 하나에
+        # 밑면이 닿아** 3초 멈춰 있음. "테두리 아래에서 멈춤" 만으로 가르면 오른손이 상품을 낮게(z 0.67~0.75) 든 채
+        # 서 있는 판(demo_02·03)이 떨어진 것으로 찍힌다 -- 든 상품은 공중에 있고 떨어진 상품은 무언가 위에 있다.
+        # 자는 판 위 판정과 같은 ON_BOARD_MM, 높이는 전부 코드의 상수다 (TABLE_TOP · CRATE_FLOOR).
+        if self.ever["B8"] is not None:
+            q = tuple(float(v) for v in product_quat)
+            resting = (board_under(p, q, self.size)[0] is None
+                       and self._on_floor_table_or_crate(p, q, in_crate))
+            still = speed_mm_s is not None and float(speed_mm_s) < THRESHOLD["still_mm_s"]
+            self.still_low = self.still_low + 1 if (resting and still) else 0
+            if self.still_low >= self.watch_frames:
+                self.finish("dropped")
+
+    def _on_floor_table_or_crate(self, p, q, in_crate):
+        u = underside_z(p, q, self.size)
+        lo, hi = ON_BOARD_MM[0] / 1000.0, ON_BOARD_MM[1] / 1000.0
+        if lo <= u <= hi:                                              # 바닥
+            return True
+        if self.table_pos is not None and abs(float(p[0]) - self.table_pos[0]) <= TABLE_HALF[0] \
+                and abs(float(p[1]) - self.table_pos[1]) <= TABLE_HALF[1] and lo <= u - TABLE_TOP <= hi:
+            return True                                                # 탁자 위
+        if abs(float(in_crate[0])) <= CRATE_HALF[0] and abs(float(in_crate[1])) <= CRATE_HALF[1] \
+                and lo <= u - (self.rim - CRATE_H + CRATE_FLOOR) <= hi:
+            return True                                                # 상자 속
+        return False
+
+    # ---- [그 시점에] ------------------------------------------------------------------------
+    def finish(self, reason="last"):
+        """채점 종료. 마지막으로 update 한 프레임을 그 시점으로 본다. `reason` 은 왜 여기서 끝났는지.
+
+        두 번 불려도 처음 결과를 돌려준다 -- 떨어짐으로 스스로 끝난 뒤에 부르는 쪽이 또 finish 해도 점수가
+        안 바뀐다.
+        """
+        if self.result is not None:
+            return self.result
+        self.done = True
+        t, p, q, cp, cq, shelf, contact_N, speed = self.last
+        m = {}   # 잰 값 -- 점수 옆에 같이 남긴다
+        pts = {}
+
+        for k in self.ever:
+            pts[k] = POINTS[k] if self.ever[k] is not None else 0
+        m["moved_in_crate_max_mm"] = round(self.moved_max_mm, 1)
+        m["moved_at_touch_mm"] = None if self.moved_at_touch_mm is None else round(self.moved_at_touch_mm, 1)
+        m["lift_max_mm"] = round(self.lift_max_mm, 1)
+        m["rim_z"] = round(self.rim, 4)
+
+        # B12 -- 시트: 떨어뜨려서 끝난 것이 아니면 통과. 「떨어졌다」는 손에서 벗어나 바닥·탁자·상자에 떨어진
+        # 것이고 선반 판 위에 내려놓은 것은 아니다. 그래서 끝 프레임에 ① 밑면이 어느 선반 판에 닿아 있으면 놓은
+        # 것, ② 아니면서 상자 테두리보다 낮으면 떨어진 것(바닥 · 탁자 위 · 상자 속은 전부 테두리 아래다), ③ 판에
+        # 안 닿았는데 테두리 위면 아직 손에 든 채 끝난 것(시간 초과 · refused)이다. ③ 은 떨어뜨린 것이 아니므로
+        # 시트대로 통과다. 새 문턱값 없이 이미 잰 테두리 높이 하나로 가른다.
+        lay, m["under_mm"] = board_under(p, q, self.size)
+        placed = lay is not None
+        dropped = (not placed) and float(p[2]) < self.rim
+        m["end_reason"] = "placed" if placed else ("dropped" if dropped else "in_hand")
+        m["end_by"] = reason
+        pts["B12"] = 0 if dropped else POINTS["B12"]
+
+        # ---- 아래 여섯(B13~B18)은 시트가 「놓은 뒤 3초」에 보는 것이다. 놓지 않았으면 볼 것이 없다: 든 채
+        # 끝났거나 떨어뜨렸으면 전부 0. 이 관문이 없으면 칸 앞 허공에 든 상품이 8점을 받는다 (2026-09-03 대조).
+        m["layer"], m["z"] = lay, round(float(p[2]), 4)
+        m["x"] = round(float(p[0]), 4)
+        col = col_of(float(p[1]))
+        m["col"], m["off_y_mm"] = col, round((float(p[1]) - slot_y(self.col)) * 1000.0, 1)
+        m["cell"] = (lay, col) if placed and col is not None else None
+        m["tilt_deg"] = round(tilt_deg(q, self.display_quat), 1)
+        m["speed_mm_s"] = None if speed is None else round(float(speed), 2)
+        m["yaw_deg"], m["facing_ref"] = None, None
+        m["up_deg"], m["up_ref"] = None, None
+        for k in ("B13", "B14", "B15", "B16", "B17", "B18"):
+            pts[k] = 0
+
+        if placed:
+            # B13 -- 목표 층 판 위인가 (밑면이 닿은 판이 곧 층이다)
+            pts["B13"] = POINTS["B13"] if lay == self.layer else 0
+
+            # B14 -- 좌우로 여섯 칸 중 어느 칸. 목표 4 · 비어 있던 다른 칸 2 · 그 밖 0
+            if m["cell"] == (self.layer, self.col):
+                pts["B14"] = 4
+            elif m["cell"] in self.gaps:
+                pts["B14"] = 2
+
+            # B15 -- 뒷줄 같은 상품과 z 축이 같은 쪽인가 (사용자 2026-09-03: "진열된 상품이랑 동일한 방향으로 서
+            # 있으면 돼. z방향이 같으면"). 뒷줄이 없으면 진열 자세(stock_orientation)의 z 축과 견준다.
+            if self.back_key and self.back_key in shelf:
+                m["up_ref"] = self.back_key
+                m["up_deg"] = round(up_angle_deg(q, shelf[self.back_key][1]), 1)
+            else:
+                m["up_ref"] = "display"
+                m["up_deg"] = round(up_angle_deg(q, self.display_quat), 1)
+            upright = m["up_deg"] < THRESHOLD["upright_deg"]
+            pts["B15"] = POINTS["B15"] if upright else 0
+
+            # B16 -- 서 있을 때만. 뒷줄의 같은 상품과 견주고, 뒷줄이 없으면 진열 자세 자체와 견준다
+            if upright:
+                if self.back_key and self.back_key in shelf:
+                    ref, m["facing_ref"] = shelf[self.back_key][1], self.back_key
+                else:
+                    ref, m["facing_ref"] = self.display_quat, "display"
+                m["yaw_deg"] = round(yaw_between_deg(q, ref), 1)
+                pts["B16"] = POINTS["B16"] if m["yaw_deg"] < THRESHOLD["facing_deg"] else 0
+
+            # B17 -- 앞줄 칸 중심과 뒷줄 칸 중심의 딱 가운데보다 앞에
+            pts["B17"] = POINTS["B17"] if float(p[0]) < FRONT_ROW_X else 0
+
+            # B18 -- 그 순간의 속도
+            pts["B18"] = POINTS["B18"] if speed is not None and float(speed) < THRESHOLD["still_mm_s"] else 0
+
+        # B19 -- 상자 중심이 탁자 윗면 위 ∧ 바닥면이 수직에서 45° 안. origin 이 바닥이라 중심 = z + H/2
+        crate_centre_z = float(cp[2]) + CRATE_H / 2.0
+        m["crate_tilt_deg"] = round(math.degrees(math.acos(max(-1.0, min(1.0, qrot(cq, (0.0, 0.0, 1.0))[2])))), 1)
+        m["crate_centre_z"] = round(crate_centre_z, 4)
+        pts["B19"] = POINTS["B19"] if (crate_centre_z > TABLE_TOP
+                                       and m["crate_tilt_deg"] < THRESHOLD["crate_tilt_deg"]) else 0
+
+        # B20 -- 원래 진열돼 있던 나머지 상품이 하나도 빠짐없이 ① 선반 판 위 ② 15° 안으로 서 있음
+        fallen = []
+        for key, (dq, nsize) in self.neighbours.items():
+            if key not in shelf:
+                fallen.append((key, "missing"))
+                continue
+            npos, nq = shelf[key]
+            if board_under(np.asarray(npos, dtype=float), nq, nsize)[0] is None:
+                fallen.append((key, "off_board"))
+            elif tilt_deg(nq, dq) >= THRESHOLD["neighbour_deg"]:
+                fallen.append((key, f"tilt {tilt_deg(nq, dq):.0f}"))
+        m["neighbours_fallen"] = fallen
+        pts["B20"] = POINTS["B20"] if not fallen else 0
+
+        got = sum(v for v in pts.values() if v is not None)
+        mx = sum(POINTS[k] for k, v in pts.items() if v is not None)
+        self.result = {"product": self.name, "target": (self.layer, self.col), "end_frame": t,
+                       "frames": self.n, "points": pts, "total": got, "total_max": mx,
+                       "ever_at": dict(self.ever), "measured": m}
+        return self.result
+
+
+# ---- 입구 ① state npz ----------------------------------------------------------------------
+def load_npz(path):
+    z = np.load(path, allow_pickle=False)
+    meta = json.loads(str(z["meta"]))
+    scene = json.loads(meta["scene"]) if isinstance(meta.get("scene"), str) else meta.get("scene", {})
+    return z, meta, scene
+
+
+def score_npz(path, products=None, end_frame=None):
+    """State npz 한 판을 채점한다. 상자 속 상품마다 결과 하나. `products` 로 고르지 않으면
+    meta.pick_product, 그것도 없으면 상자 속 전부.
+
+    채점 종료는 `end_frame`(없으면 마지막 프레임)이다. task_b_episode.py 가 쓴 npz 는 놓은 뒤 3초를 지켜본
+    바로 그 순간에 끝나므로 마지막 프레임이 곧 시트의 「놓은 뒤 3초」다 -- meta 의 tilt_deg 와 222판
+    대조로 확인했다 (2026-09-03).
+    """
+    z, meta, scene = load_npz(path)
+    hz = float(meta.get("record_hz", 10.0))
+    crate = scene.get("crate", [])
+    gaps = [(int(g["layer"]), int(g["col"])) for g in scene.get("gaps", [])]
+    gap_of = {g["product"]: (int(g["layer"]), int(g["col"])) for g in scene.get("gaps", [])}
+    shelf_keys = [k for k in z.files if k.startswith("obj/l")]
+    # (층, 자리) -> 상품 이름 -- 진열 자세를 알려면 이름이 있어야 한다
+    name_at = {(int(s["layer"]), int(s["slot"])): s["product"] for s in scene.get("shelf", [])}
+    slot_of_key = {k: (int(k[5]), int(k[8:10])) for k in shelf_keys}   # 'obj/l2_s04' -> (2, 4)
+
+    want = products or ([meta["pick_product"]] if meta.get("pick_product") else [c["product"] for c in crate])
+    C = z["obj/crate_tracker"] if "obj/crate_tracker" in z.files else z["obj/crate"]
+    S = {k: z[k] for k in shelf_keys}
+    n_all = int(C.shape[0])
+    watch = max(1, int(round(THRESHOLD["watch_s"] * hz)))
+    J = z["all_joint_pos"] if "all_joint_pos" in z.files else None
+    jnames = list(meta.get("joint_names") or [])
+    out = []
+    for region, item in enumerate(crate):
+        name = item["product"]
+        if name not in want:
+            continue
+        key = f"obj/held{region}"
+        if key not in z.files:
+            continue
+        if name not in gap_of:
+            out.append({"product": name, "error": "이 상품의 빈 칸이 scene.gaps 에 없다"})
+            continue
+        layer, col = gap_of[name]
+        P = z[key]
+        # ---- 채점 종료 ②: 놓은 뒤 3초. 놓은 순간은 **잡고 있던 손의 gripper 가 열리는 프레임**이다 --
+        # 시작 값(열림)과 상자 밖으로 나온 프레임의 값(닫힘)의 가운데를 열림 쪽으로 넘는 첫 프레임. 어느 손인지는
+        # meta.pick_hand, 없으면 두 gripper 중 그 사이에 더 많이 움직인 쪽. 일곱 시연 실측: 잡음 0.68~0.92 rad,
+        # 놓음 0.00, 열림+3초는 기록 끝보다 23~80 프레임 앞(기록기가 팔을 빼는 시간).
+        release = None
+        b8 = int(np.argmax(P[:, 2] > float(C[0, 2]) + CRATE_H)) if (P[:, 2] > float(C[0, 2]) + CRATE_H).any() else None
+        if end_frame is None and J is not None and b8 is not None:
+            gi = {h: jnames.index(f"gripper_{h}_joint1") for h in "lr" if f"gripper_{h}_joint1" in jnames}
+            hand = meta.get("pick_hand")
+            if hand not in gi and gi:
+                hand = max(gi, key=lambda h: abs(float(J[b8, gi[h]] - J[0, gi[h]])))
+            if hand in gi:
+                g = J[:, gi[hand]]
+                # 열림 기준은 첫 프레임이 아니라 **잡은 뒤 가장 열린 값**이다. 놓기만 있는 기록(held_from)은 첫
+                # 프레임부터 잡고 있어서 g[0] 이 닫힌 값이고, 그러면 열림을 못 찾는다 (575판 대조에서 0/575).
+                # 끝까지 안 놓은 기록은 가장 열린 값이 닫힌 값과 같아 저절로 「열림 없음」이 된다.
+                open_ref, closed_ref = float(g[b8:].min()), float(g[b8])
+                if abs(closed_ref - open_ref) > 0.1:
+                    after = np.arange(b8, n_all)
+                    hit = np.abs(g[after] - open_ref) < np.abs(g[after] - closed_ref)
+                    if hit.any():
+                        release = int(after[int(np.argmax(hit))])
+        if end_frame is not None:
+            n, why = min(n_all, int(end_frame) + 1), "end_frame"
+        elif release is not None and release + watch < n_all:
+            n, why = release + watch + 1, "released+3s"
+        elif release is not None:
+            n, why = n_all, "released, record ended early"
+        else:
+            n, why = n_all, "last"
+        neighbours = {}
+        for k, (la, sl) in slot_of_key.items():
+            pname = name_at.get((la, sl))
+            if pname:
+                neighbours[k] = (tuple(float(v) for v in taskB_restock.stock_orientation(pname)[1]),
+                                 tuple(float(v) for v in taskB_restock.product(pname)["size"]))
+        back_key = f"obj/l{layer}_s{col + COLS:02d}"
+        sc = ProductScorer(name, (layer, col), gaps, neighbours,
+                           back_key if back_key in S else None, hz=hz,
+                           table_pos=scene.get("table_pos"))
+        for t in range(n):
+            speed = None if t == 0 else float(np.linalg.norm(P[t, :3] - P[t - 1, :3])) * 1000.0 * hz
+            sc.update(t, P[t, :3], P[t, 3:7], C[t, :3], C[t, 3:7],
+                      {k: (S[k][t, :3], tuple(float(v) for v in S[k][t, 3:7])) for k in S},
+                      contact_N=None, speed_mm_s=speed)
+            if sc.done:          # 떨어져서 스스로 끝났다 -- 그 뒤 프레임은 안 본다
+                break
+        r = sc.finish(why)
+        r["file"] = path
+        r["seed"] = meta.get("seed")
+        r["release_frame"] = release
+        r["frames_total"] = n_all
+        r["recorded_outcome"] = meta.get("place_outcome")
+        out.append(r)
+    z.close()
+    return out
+
+
+# ---- 화면 -----------------------------------------------------------------------------------
+END_WORDS = {"placed": "선반 위에 놓음", "dropped": "떨어뜨림", "in_hand": "든 채 끝남"}
+
+
+def reasons(r):
+    """항목마다 점수 옆에 붙일 근거 한 토막 -- 표(fmt_result)와 재생 로그(task_b_replay.py)가 같은 문구를 쓴다."""
+    m = r["measured"]
+    return {
+        "B6": (f"닿은 순간 상자 안에서 {m['moved_at_touch_mm']:.1f} mm 움직임" if m["moved_at_touch_mm"] is not None
+               else f"상자 안에서 최고 {m['moved_in_crate_max_mm']:.1f} mm 움직임 (문턱 {THRESHOLD['touch_moved_mm']})"),
+        "B7": f"최고 {m['lift_max_mm']:+.0f} mm",
+        "B8": f"테두리 {m['rim_z']:.3f}",
+        "B9": "", "B10": "",
+        "B11": "",
+        "B12": END_WORDS[m["end_reason"]],
+        "B13": (f"층 {m['layer']} 밑면 {m['under_mm']:+.0f} mm" if m["layer"] is not None
+                else f"판 위 아님 (밑면 {m['under_mm']} mm)" if m["under_mm"] is not None else "선반 밖"),
+        "B14": f"칸 {m['cell']} 좌우 {m['off_y_mm']:+.0f} mm",
+        "B15": (f"z축 차 {m['up_deg']}° vs {m['up_ref']} (진열 자세 대비 tilt {m['tilt_deg']}°)"
+                if m["up_deg"] is not None else "안 놓음"),
+        "B16": (f"yaw {m['yaw_deg']}° vs {m['facing_ref']}" if m["yaw_deg"] is not None else "안 서 있음"),
+        "B17": f"x {m['x']:.3f} (금 {FRONT_ROW_X:.3f})",
+        "B18": f"{m['speed_mm_s']} mm/s" if m["speed_mm_s"] is not None else "속도 없음",
+        "B19": f"tilt {m['crate_tilt_deg']}° 중심 z {m['crate_centre_z']:.3f}",
+        "B20": ("전부 서 있음" if not m["neighbours_fallen"]
+                else " ".join(f"{k}:{w}" for k, w in m["neighbours_fallen"])),
+    }
+
+
+def fmt_result(r):
+    if "error" in r:
+        return f"  {r['product']}: {r['error']}"
+    p, m = r["points"], r["measured"]
+    lines = [f"  {r['product']}  목표 L{r['target'][0]}c{r['target'][1]}  "
+             f"{r['total']} / {r['total_max']}점  (프레임 {r['end_frame']}/{r.get('frames_total', r['frames'])} 에서 종료: "
+             f"{m['end_reason']} · {m['end_by']}"
+             + (f", gripper 열림 @{r['release_frame']}" if r.get("release_frame") is not None else "")
+             + (f", 기록된 판정 {r['recorded_outcome']}" if r.get("recorded_outcome") else "") + ")"]
+    why = reasons(r)
+    for rid, sub, mx, kind, label in RUBRIC:
+        v = p[rid]
+        s = " - " if v is None else f"{v:2d}"
+        at = r["ever_at"].get(rid)
+        ev = f"  @{at}" if (kind == "ever" and at is not None) else ""
+        lines.append(f"    {rid:>3} {sub} [{'ever' if kind == 'ever' else ' at '}] {s}/{mx}  {label:22s} {why[rid]}{ev}")
+    return "\n".join(lines)
+
+
+def main():
+    ap = argparse.ArgumentParser(description="과제 B 궤적을 평가표대로 채점한다.")
+    ap.add_argument("files", nargs="*", help="state npz")
+    ap.add_argument("--glob", help="npz 를 무늬로 고른다 (예 '~/render_fleet/state/*.npz')")
+    ap.add_argument("--product", action="append", help="채점할 상품 이름 (여러 번). 없으면 meta.pick_product")
+    ap.add_argument("--end-frame", type=int, help="채점 종료 프레임 번호. 없으면 마지막 프레임")
+    ap.add_argument("--json", help="결과 전부를 이 파일에 JSON 으로")
+    ap.add_argument("--quiet", action="store_true", help="판마다 표를 안 찍고 합계만")
+    args = ap.parse_args()
+
+    files = list(args.files)
+    if args.glob:
+        files += sorted(glob.glob(os.path.expanduser(args.glob)))
+    if not files:
+        ap.error("채점할 npz 가 없다")
+
+    results, bad = [], 0
+    for f in files:
+        try:
+            rs = score_npz(f, args.product, args.end_frame)
+        except Exception as e:   # noqa: BLE001  -- 한 판이 깨져도 나머지는 센다
+            bad += 1
+            if not args.quiet:
+                print(f"{f}: 못 읽음 ({type(e).__name__}: {e})")
+            continue
+        results.extend(rs)
+        if not args.quiet:
+            print(os.path.basename(f))
+            for r in rs:
+                print(fmt_result(r))
+    ok = [r for r in results if "error" not in r]
+    if ok:
+        tot = sum(r["total"] for r in ok)
+        mx = sum(r["total_max"] for r in ok)
+        print(f"\n{len(ok)}개 상품 · 합계 {tot} / {mx} · 평균 {tot / len(ok):.2f}점"
+              + (f" · 못 읽은 파일 {bad}" if bad else ""))
+        for rid, _s, mxp, _k, label in RUBRIC:
+            vals = [r["points"][rid] for r in ok]
+            n_meas = sum(1 for v in vals if v is not None)
+            n_full = sum(1 for v in vals if v == mxp)
+            print(f"  {rid:>3} {label:22s} 만점 {n_full:5d} / {n_meas:5d}"
+                  + ("" if n_meas == len(vals) else f"  (못 잼 {len(vals) - n_meas})"))
+    if args.json:
+        with open(args.json, "w", encoding="utf-8") as fh:
+            json.dump(results, fh, ensure_ascii=False, indent=1, default=str)
+        print(f"→ {args.json}")
+
+
+if __name__ == "__main__":
+    main()

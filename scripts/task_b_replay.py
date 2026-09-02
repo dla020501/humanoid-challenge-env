@@ -171,6 +171,27 @@ print(f"[i] 집기 {_d.get('pick_frames')} 프레임 + 놓기 {_d.get('place_fra
 print(f"[i] 진열대 상품 {len(SHELF_ITEMS)} 개 · 상자 상품 {len(CRATE_ITEMS)} 개 · "
       f"{args_cli.substeps} 배로 채워 {args_cli.hz:.0f} Hz 로 그린다\n", flush=True)
 
+# ---- 채점 -- 평가표(Task-B 시트)대로. 재생하기 전에 이 기록을 통째로 채점해 두고, 재생 중 그 프레임이 오면
+# 알린다. 채점기는 옆의 taskb_score.py 이고 기록(npz)만 읽으므로 화면과 무관하게 같은 점수가 나온다.
+taskb_score = _by_path("taskb_score", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                   "taskb_score.py"))
+SCORED = next((r for r in taskb_score.score_npz(DEMO) if "points" in r), None)
+RECORD_HZ = float(META.get("record_hz", 10.0))
+EVENTS = {}       # 프레임 -> [(항목 문구, 점수)] -- [한 번이라도] 항목이 처음 참이 된 프레임
+if SCORED is not None:
+    for _rid, _sub, _mx, _kind, _label in taskb_score.RUBRIC:
+        _at = SCORED["ever_at"].get(_rid)
+        if _kind == "ever" and _at is not None:
+            EVENTS.setdefault(int(_at), []).append((_label, int(_mx)))
+    _lay, _col = SCORED["target"]
+    print(f"[점수] 채점 대상 {SCORED['product']} → 목표 칸 L{_lay} c{_col} · 평가표 15항목 30점")
+    print(f"[점수] 채점 종료 프레임 {SCORED['end_frame']} "
+          f"({SCORED['end_frame'] / RECORD_HZ:.1f}초, {taskb_score.END_WORDS[SCORED['measured']['end_reason']]}"
+          + (f" -- gripper 열림 {SCORED['release_frame'] / RECORD_HZ:.1f}초 + 3초"
+             if SCORED["measured"]["end_by"] == "released+3s" else "") + ")\n", flush=True)
+else:
+    print("[점수] 이 기록은 채점하지 못했다 (상자 속 상품의 빈 칸이 장부에 없다)\n", flush=True)
+
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
@@ -312,7 +333,34 @@ def main():
     print(f"[i] 재생 시작 -- {total} 장", flush=True)
     t0 = time.time()
     drawn = 0
+    got = 0        # 지금까지 딴 점수 -- [점수] 줄마다 누적을 같이 찍는다
+
+    def announce(i):
+        """이 프레임에서 딴 점수를 알린다. 채점 종료 프레임이면 놓은 뒤 항목과 최종 점수까지."""
+        nonlocal got
+        if SCORED is None or i > SCORED["end_frame"]:
+            return
+        for label, pts in EVENTS.get(i, []):
+            got += pts
+            print(f"[점수] {i / RECORD_HZ:6.1f}초  {label:<26s} +{pts}   누적 {got:2d}/30", flush=True)
+        if i != SCORED["end_frame"]:
+            return
+        m = SCORED["measured"]
+        why = taskb_score.reasons(SCORED)
+        head = ("── 놓은 뒤 3초 ──" if m["end_reason"] == "placed"
+                else "── product 가 떨어졌다: 채점 종료 ──" if m["end_reason"] == "dropped"
+                else "── 기록 끝 (product 를 든 채) ──")
+        print(f"[점수] {i / RECORD_HZ:6.1f}초  {head}", flush=True)
+        for rid, _sub, mx, kind, label in taskb_score.RUBRIC:
+            if kind != "at":
+                continue
+            pts = SCORED["points"][rid]
+            got += pts
+            print(f"[점수]          {label:<26s} {'+' + str(pts) if pts else ' 0'}/{mx}   {why[rid]}", flush=True)
+        print(f"[점수] ════ 최종 {got} / 30 점 ════\n", flush=True)
+
     for i in range(NFRAMES):
+        announce(i)
         for k in range(sub if i < NFRAMES - 1 else 1):
             q, r, p = frame(i, k / sub)
             # 두 번 쓰고 그 사이에 한 걸음. 걸음이 있어야 써 넣은 자세가 화면이 읽는
