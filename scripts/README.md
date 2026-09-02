@@ -7,7 +7,9 @@
 |---|---|
 | `task_a_demo.py` | **과제 A 의 시작 장면**을 하나 만들어 띄웁니다 |
 | `task_b_demo.py` | **과제 B 의 시작 장면**을 하나 만들어 띄웁니다 |
+| `task_b_replay.py` | **과제 B 한 판 전부**를 처음부터 끝까지 틀어 줍니다 |
 | `taskA/` | 과제 A 의 **장면 정의 모듈과 실측값**. 위 데모가 읽습니다 |
+| `demos/` | `task_b_replay.py` 가 트는 시연 기록 일곱 판 (2.4 MB) |
 
 ### 코드는 여기, 에셋은 이미지
 
@@ -331,3 +333,67 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
 
 에셋이 어디에 어떤 이름으로 놓여 있는지는 루트 [`README.md`](../README.md) 의
 **환경 안의 에셋** 절에 있습니다.
+
+---
+
+## `task_b_replay.py`
+
+`task_b_demo.py` 는 시작 장면에서 멈춥니다. 이 스크립트는 **그 다음**을 보여 줍니다 --
+로봇이 상자에서 상품을 꺼내고, 몸을 돌려 진열대로 가서, 빈 칸에 놓는 한 판 전부입니다.
+
+```bash
+# 컨테이너 안에서
+cd /workspace/cyclo_lab
+${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
+    /workspace/challenge_scripts/task_b_replay.py --seed 1
+```
+
+호스트에서 한 줄로 띄우려면 `run/run_task_b_replay.sh` 를 쓰세요.
+
+### 들어 있는 판
+
+`--seed 0` 부터 `--seed 6` 까지 일곱 판입니다. `--list` 로 목록을 봅니다.
+
+| `--seed` | 상품 | 어느 칸에 | 길이 |
+|---:|---|---|---:|
+| 0 | Buldak stir-fried noodle cup | the third shelf, left column | 116 초 |
+| 1 | small sour cream Pringles tube | the third shelf, middle column | 273 초 |
+| 2 | Yegam original potato chip tube | the third shelf, right column | 120 초 |
+| 3 | baked sweet potato snack box | the third shelf, right column | 107 초 |
+| 4 | Jin Ramen hot cup | the third shelf, middle column | 111 초 |
+| 5 | Butter Ring biscuit box | the third shelf, middle column | 120 초 |
+| 6 | Cereal Choco biscuit box | the third shelf, left column | 114 초 |
+
+`task_b_demo.py` 의 `--seed` 는 **장면을 뽑는 수**지만, 여기서는 **어느 기록을 트는지**
+고르는 번호입니다. 이 일곱 판은 미리 모아 둔 것이라 새로 뽑히지 않습니다.
+
+### 이것은 재생입니다
+
+프레임마다 로봇의 관절 31 개와 로봇의 위치, 그리고 상품 스물다섯 개의 위치를 기록에서
+그대로 **써 넣습니다.** 그래서 나뉘는 것이 있습니다.
+
+* **정확한 것** — 로봇이 어디 있었는지, 상품이 어디 있었는지. 전부 실제로 일어난 그
+  값입니다.
+* **보여 줄 수 없는 것** — 접촉. 손가락이 상품을 눌러 딸려 오는 것이 아니라 상품도
+  제자리에 놓입니다. "이 파지가 미끄러지지 않고 버티는가" 는 이 화면이 답할 수 있는
+  질문이 아닙니다. 그건 이 판을 실제로 돌려서 이미 답한 것이고, 일곱 판 모두 놓기에
+  성공한 판입니다.
+
+### 옵션
+
+```bash
+--seed 1          어느 판 (0..6)
+--substeps 4      기록된 자세 사이를 몇 배로 채우나. 1 이면 안 채운다
+--hz 40           초당 몇 장까지 그리나. substeps 와 곱이 10 이면 실제 속도
+--hz 20           절반 속도로 천천히
+--list            무슨 판이 들어 있는지 찍고 끝낸다
+```
+
+기록은 **10 Hz** 입니다. 그대로 그리면 눈에 뚝뚝 끊겨 보여서, 자세와 자세 사이를
+`--substeps` 배로 채워 그립니다. 채우는 값은 양 끝을 잇는 것일 뿐이고, 끝점은 언제나
+기록입니다.
+
+### 배경(매장)은 없습니다
+
+이 기록은 매장 안에서 모았지만 배포 이미지에는 매장 USD 가 들어 있지 않습니다.
+로봇·진열대·책상·상자·상품은 기록 그대로이고, 주위의 가게만 비어 있습니다.

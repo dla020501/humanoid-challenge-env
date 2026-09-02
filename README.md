@@ -26,6 +26,7 @@ docker/       도커 실행 구성. 환경 코드(cyclo_lab)와 에셋은 배포
 scripts/      주최측 제공 스크립트 — 씬 생성기(task 별)와 데모 평가 서버.
               컨테이너의 /workspace/challenge_scripts 로 붙습니다
   taskA/          과제 A 의 장면 정의 — 12 좌석, 목적지, 스툴, 실측값. 읽어 보셔도 됩니다
+  demos/          과제 B 시연 기록 일곱 판. task_b_replay.py 가 읽습니다
   demo_server/    채점과 같은 방식으로 정책 서버를 붙여 보는 데모 평가 서버 (준비 중)
 run/          실행 진입점. run_gui.sh 가 GUI 로 컨테이너를 띄우고,
               run_task_*.bash 가 해당 과제의 씬을 랜덤하게 하나 생성해 띄웁니다 (준비 중)
@@ -268,6 +269,26 @@ JSON 으로 남습니다. `--shot` 은 로봇 머리 카메라가 보는 그림�
 있습니다.
 
 옵션 전체와 더 자세한 설명은 [`scripts/README.md`](scripts/README.md) 에 있습니다.
+
+## 과제 B 한 판을 처음부터 끝까지 보기
+
+위 `task_b_demo.py` 는 시작 장면에서 멈춥니다. 로봇이 실제로 어떻게 움직여서 상품을
+꺼내고 진열대에 놓는지 보려면 `task_b_replay.py` 를 쓰세요. 미리 모아 둔 시연 일곱
+판이 저장소에 함께 들어 있습니다.
+
+```bash
+cd /workspace/cyclo_lab
+${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
+    /workspace/challenge_scripts/task_b_replay.py --seed 1
+```
+
+호스트에서 한 줄로 띄우려면 `run/run_task_b_replay.sh` 를 쓰세요. `--seed 0` 부터
+`--seed 6` 까지 일곱 판이고, 한 판은 107~273 초입니다. `--list` 로 목록을 봅니다.
+
+**이것은 재생이지 시뮬레이션이 아닙니다.** 프레임마다 로봇의 관절과 상품의 위치를
+기록에서 그대로 써 넣습니다. 로봇과 상품이 어디 있었는지는 정확하지만, 접촉은
+보여 주지 못합니다 -- 상품이 손가락에 눌려 딸려 오는 것이 아니라 상품도 제자리에
+놓입니다. 자세한 것은 [`scripts/README.md`](scripts/README.md) 에 있습니다.
 
 ## 환경 안의 에셋
 
