@@ -22,13 +22,14 @@
 한 장면은 seed 하나로 완전히 정해진다. 같은 seed 는 어디서 돌려도 같은 장면이다.
 
   * **진열대**  다섯 단이 상품으로 차 있고, 그 중 위 두 단(3단·2단)의 앞줄에서
-    1~3 칸이 비어 있다. 비어 있는 칸 뒤에는 그 칸에 들어가야 할 상품이 서 있다 --
-    "무엇을 채워야 하는가"는 진열대를 보면 읽을 수 있다.
+    한 칸이 비어 있다(--gaps 로 두 칸·세 칸까지 늘린다). 비어 있는 칸 뒤에는 그 칸에
+    들어가야 할 상품이 서 있다 -- "무엇을 채워야 하는가"는 진열대를 보면 읽을 수 있다.
   * **상자**    책상 위 파란 상자에 그 빈 칸 수만큼 상품이 들어 있다. i 번째 상품이
     i 번째 빈 칸에 들어간다.
-  * **로봇**    진열대를 마주 보고, 바퀴가 바닥에 닿은 채로 선다. 공중에서 떨어지지
-    않는다 -- 로봇 USD 의 정지 자세는 가장 낮은 바퀴를 218 mm 띄워 놓기 때문에,
-    스폰 뒤 바퀴 높이를 재서 그만큼 내려 앉힌다(아래 settle_on_ground).
+  * **로봇**    시연을 모을 때 pick 이 시작하던 그 자세로 선다(아래 START_* 상수).
+    상자를 마주 보고, 바퀴는 바닥에 닿아 있다 -- 로봇 USD 의 정지 자세는 가장 낮은
+    바퀴를 218 mm 띄워 놓기 때문에, 스폰 뒤 바퀴 높이를 재서 그만큼 내려 앉힌다
+    (아래 settle_on_ground).
 
 실행:
 
@@ -44,14 +45,15 @@
 
 import argparse
 import os
+import threading as _threading
 
 from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description="과제 B 의 시작 장면 하나를 띄운다.")
 parser.add_argument("--seed", type=int, default=1000,
                     help="장면 하나를 정하는 수. 같은 값이면 같은 장면이다.")
-parser.add_argument("--gaps", type=int, default=None, choices=(1, 2, 3),
-                    help="빈 칸(=상자 속 상품) 개수. 기본값은 seed 가 정한다.")
+parser.add_argument("--gaps", type=int, default=1, choices=(1, 2, 3),
+                    help="빈 칸(=상자 속 상품) 개수. 기본은 한 개다.")
 parser.add_argument("--seconds", type=float, default=0.0,
                     help="장면을 몇 초 동안 유지할지. 0 이면 창을 닫을 때까지 (--headless "
                          "일 때는 1 초).")
@@ -99,7 +101,14 @@ taskB_labels = _by_path("taskB_labels", f"{_SRC}/assets/object/taskB_labels.py")
 # 모두 수집 코드가 쓰는 값 그대로다.
 FRONT_X = 0.47
 PHYSICS_DT = 1.0 / 120.0
-START_LIFT = -0.05          # 진열대를 훑기 시작하는 몸통 높이
+# 시연이 실제로 시작하던 자세. 넷 다 scripts/tools/pick_stance.py 에서 온 값이고,
+# 그 파일이 측정을 들고 있다 (cstore-challenge, 태그 taskb-collect-standard-20260830):
+# 성공한 pick 시연 4,344 판의 frame 0 을 평균한 자리와 방향, pick 240 판이 흩어짐 없이
+# 같은 값을 쓴 몸통 높이다. 배포 이미지에는 그 파일이 안 들어가므로 여기 적어 둔다.
+START_X = -0.2795           # 베이스 x
+START_Y = -0.2756           # 베이스 y
+START_YAW_DEG = -87.31      # 상자를 마주 본 방향. -90 이 아니다
+START_LIFT = -0.22          # pick 이 시작하는 몸통 높이
 HEAD_TILT_DEG = 28.0        # 고개를 이만큼 숙이고 시작한다
 SHOULDER_OUT_DEG = 20.0     # 팔을 몸에서 이만큼 벌린다 -- 0 이면 팔이 제 몸통 안에 박힌다
 WHEEL_RADIUS = 0.0864       # 구동 바퀴 반지름 = 바퀴가 바닥에 닿았을 때의 바퀴 중심 높이
@@ -123,7 +132,7 @@ def draw_scene(seed, gaps):
       crate   [(상품명, 위치, 회전)]  상자 속 상품. i 번째가 gaps[i] 에 들어간다
       table / crate_pose  책상과 상자가 놓인 자리
     """
-    n = (seed * 7919) % 3 + 1 if gaps is None else gaps
+    n = gaps
     # 이 두 모듈 전역이 곧 이 에피소드의 추첨 결과다. layout()/stock() 이 EPISODE_SLOTS 를,
     # product_poses() 가 CRATE_ITEMS 를 읽는다.
     taskB_restock.EPISODE_SLOTS = n
@@ -224,10 +233,11 @@ RIGHT_JOINTS = [f"arm_r_joint{i + 1}" for i in range(7)]
 class World(InteractiveSceneCfg):
     """바닥, 조명, 로봇, 진열대, 책상, 상자, 그리고 이 장면의 상품 전부.
 
-    카메라 둘은 채점이 정책에게 보내는 관측과 같은 값이다 -- head_cam 672x376,
-    right_wrist_cam 424x240. 환경 코드의 기본 해상도는 244x244 지만 채점 서버가
-    이 값으로 덮어쓰므로, 여기도 같은 값을 명시한다. 왼손목 카메라는 현재 채점
-    관측에 없다(스폰 자체를 안 한다).
+    카메라 셋은 채점이 정책에게 보내는 관측과 같은 값이다 -- head_cam 672x376,
+    left_wrist_cam · right_wrist_cam 424x240. 환경 코드의 기본 해상도는 244x244 지만
+    채점 서버가 이 값으로 덮어쓰므로, 여기도 같은 값을 명시한다. 두 손목 카메라는
+    붙는 팔만 다르고 나머지 설정이 같다 -- 마운트 프레임이 양팔에 다 있고
+    (arm_?_link7/camera_?_bottom_screw_frame/camera_?_link), 왼쪽은 오른쪽의 거울이다.
     """
 
     ground = AssetBaseCfg(prim_path="/World/ground", spawn=sim_utils.GroundPlaneCfg())
@@ -244,6 +254,16 @@ class World(InteractiveSceneCfg):
                                          horizontal_aperture=20.955,
                                          clipping_range=(0.1, 2.0)),
         offset=CameraCfg.OffsetCfg(pos=(-0.03, 0.04, 0.0), rot=(0.5, 0.5, -0.5, -0.5),
+                                   convention="isaac"))
+    left_wrist_cam = CameraCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/ffw_sg2_follower/arm_l_link7"
+                  "/camera_l_bottom_screw_frame/camera_l_link/left_wrist_cam",
+        update_period=1.0e9, height=240, width=424, data_types=["rgb"],
+        update_latest_camera_pose=True,
+        spawn=sim_utils.PinholeCameraCfg(focal_length=18.0, focus_distance=400.0,
+                                         horizontal_aperture=20.955,
+                                         clipping_range=(0.1, 2.0)),
+        offset=CameraCfg.OffsetCfg(pos=(-0.08, 0.0, 0.0), rot=(0.5, -0.5, -0.5, 0.5),
                                    convention="isaac"))
     right_wrist_cam = CameraCfg(
         prim_path="{ENV_REGEX_NS}/Robot/ffw_sg2_follower/arm_r_link7"
@@ -329,7 +349,7 @@ def main():
             scene.update(PHYSICS_DT)
 
     def settle_on_ground():
-        """로봇을 진열대 앞 제자리에, 바퀴를 바닥에 붙여 세운다.
+        """로봇을 시연이 시작하던 자리에, 바퀴를 바닥에 붙여 세운다.
 
         두 가지를 바로잡는다.
 
@@ -341,25 +361,26 @@ def main():
            나왔다), 그러면 차체가 무언가와 겹쳐 PhysX 가 로봇을 1.34 m 로 던진다.
 
         2. **자리.** 낙하는 로봇을 옆으로도 밀어 놓는다(실측: x 가 -22.6 mm). 이 데모는
-           환경을 보여 주는 것이므로 설정된 자리에 똑바로 세운다. 시연 수집 쪽은 일부러
-           이 보정을 하지 않는다 -- 거기서는 "튄 자리"가 곧 그 에피소드의 시작 자세다.
+           환경을 보여 주는 것이므로 START_X · START_Y · START_YAW_DEG 에 똑바로 세운다.
+           시연 수집 쪽은 일부러 이 보정을 하지 않는다 -- 거기서는 "튄 자리"가 곧 그
+           에피소드의 시작 자세다.
         """
         want = robot.data.default_joint_pos[0].clone()
         want[names.index("head_joint1")] = math.radians(HEAD_TILT_DEG)
         want[names.index("lift_joint")] = START_LIFT
         robot.write_joint_state_to_sim(want.unsqueeze(0), torch.zeros_like(want).unsqueeze(0))
         scene.write_data_to_sim()
-        home = FFW_SG2_MOBILE_CFG.init_state.pos
-        upright = torch.as_tensor(np.asarray(FFW_SG2_MOBILE_CFG.init_state.rot,
-                                             dtype=np.float32), device=sim.device)
+        facing = torch.as_tensor(
+            np.asarray(taskB_table.quat_from_euler_deg(0.0, 0.0, START_YAW_DEG),
+                       dtype=np.float32), device=sim.device)
         for _ in range(2):
             hold(1)
             low = min(float(robot.data.body_pos_w[0, i][2]) for i in wheel_bodies)
             st = robot.data.root_state_w[0].clone()
-            st[0] = float(home[0])
-            st[1] = float(home[1])
+            st[0] = START_X
+            st[1] = START_Y
             st[2] -= low - WHEEL_RADIUS
-            st[3:7] = upright
+            st[3:7] = facing
             st[7:] = 0.0
             robot.write_root_state_to_sim(st.unsqueeze(0))
             scene.write_data_to_sim()
@@ -423,4 +444,13 @@ def main():
 
 
 main()
+# Kit 의 종료가 이 이미지에서는 돌아오지 않는다. 실측 2026-09-03: 장면을 다 세우고 물리·렌더가
+# 0.3 초에 끝난 뒤 `simulation_app.close()` 에서 34 분을 매달렸고, 프로세스는 죽지도 않고 CPU 를
+# 계속 썼다. 그러면 --headless 로 돌린 참가자는 끝나지 않는 명령을 보게 된다.
+#
+# 그래서 정상 종료를 먼저 시도하되, 10 초 안에 안 돌아오면 프로세스를 그대로 끝낸다. 이 시점에는
+# 장면 JSON 도 카메라 그림도 이미 파일에 쓰인 뒤라 잃는 것이 없다.
+_exit_guard = _threading.Timer(10.0, os._exit, (0,))
+_exit_guard.daemon = True
+_exit_guard.start()
 simulation_app.close()

@@ -78,10 +78,7 @@ FRONT_X = 0.47                                   # 선반 앞면 x (pick_stance.
 BOARD_TOPS = tuple(float(v) for v in taskB_shelf.BOARD_TOPS)   # (0.100, 0.4022, 0.7461, 1.1555, 1.600)
 SHELF_W, SHELF_D = float(taskB_shelf.SIZE[0]), float(taskB_shelf.SIZE[1])   # 0.900 · 0.3566
 CRATE_H = float(taskB_table.CRATE_SIZE[2])       # 0.140 -- 상자 origin 은 바닥이라 테두리 = z + 0.140
-CRATE_FLOOR = float(taskB_table.CRATE_FLOOR)     # 0.0107 -- 상자 안쪽 바닥은 origin 보다 이만큼 위
-CRATE_HALF = (float(taskB_table.CRATE_SIZE[0]) / 2.0, float(taskB_table.CRATE_SIZE[1]) / 2.0)   # 상자 좌표계 반폭
 TABLE_TOP = float(taskB_table.TABLE_TOP)         # 0.725
-TABLE_HALF = (float(taskB_table.TABLE_SIZE[0]) / 2.0, float(taskB_table.TABLE_SIZE[1]) / 2.0)   # 0.3 · 0.3
 COLS = int(taskB_restock.COLS)                   # 3
 CELL_HALF = float(taskB_restock.COL_PITCH) / 2.0  # 0.140 -- 칸 구역: 칸 중심 좌우 140 mm
 FRONT_ROW_X = FRONT_X + taskB_restock.FRONT_MARGIN + taskB_restock.ROW_PITCH / 2.0   # 0.640 -- 앞줄/뒷줄의 금
@@ -101,7 +98,7 @@ THRESHOLD = {
                              #     ※ 시트의 15° 는 놓은 539판 중 87 만 통과했고, 90° 선은 85~95° 에 263판이 몰린 자리다
     "facing_deg": 90.0,      # B16 뒷줄 같은 상품 기준 ±90° (사용자 2026-09-03). 서 있을 때(B15 통과)만 본다
     "still_mm_s": 10.0,      # B18
-    "watch_s": 3.0,          # 시트: 놓은 뒤 3초에 판정한다 · 떨어진 상품이 이만큼 멈춰 있으면 그 순간이 채점 종료
+    "watch_s": 3.0,          # 시트: 놓은 뒤 3초에 판정한다
     "crate_tilt_deg": 45.0,  # B19 ※ 실측: passed 3,133판 중 45° 안 3,127
     "neighbour_deg": 15.0,   # B20 시트의 「서 있는가」 자(15°)를 진열 자세 기준으로 그대로 쓴다
 }
@@ -218,12 +215,9 @@ class ProductScorer:
     열쇠로 (pos, quat) 를 넘긴다. `back_key` 는 목표 칸 뒷줄의 같은 상품 열쇠(있으면) -- B16 이 견줄 상대.
     """
 
-    def __init__(self, name, target, gaps, neighbours, back_key=None, hz=10.0, table_pos=None):
+    def __init__(self, name, target, gaps, neighbours, back_key=None, hz=10.0):
         self.name = name
-        self.table_pos = None if table_pos is None else tuple(float(v) for v in table_pos)
-        self.watch_frames = max(1, int(round(THRESHOLD["watch_s"] * float(hz))))
         self.done = False          # 채점 종료 뒤에는 update 가 아무것도 안 한다
-        self.still_low = 0         # 테두리 아래·선반 밖에서 멈춰 있은 프레임 수 (떨어짐 감지)
         self.layer, self.col = int(target[0]), int(target[1])
         self.gaps = {(int(a), int(b)) for a, b in gaps}
         self.display_quat = tuple(float(v) for v in taskB_restock.stock_orientation(name)[1])
@@ -246,9 +240,9 @@ class ProductScorer:
                speed_mm_s=None):
         """프레임 하나. shelf 는 {열쇠: (pos, quat)}. contact_N 은 상품에 단 센서가 읽은 힘(없으면 None).
 
-        떨어짐을 스스로 감지한다: 상자 밖으로 나온 뒤(B8) 상품이 어느 판에도 안 놓인 채 테두리 아래에서
-        watch_s 동안 멈춰 있으면 그 프레임에서 finish("dropped") 를 부르고 `done` 이 된다 -- 시트: "상품이
-        바닥에 떨어지면 그 상품의 평가는 거기서 끝난다. 떨어진 상품을 다시 줍는 것은 허용하지 않는다".
+        떨어짐을 스스로 감지한다: 상자 밖으로 나온 뒤(B8) 상품이 어느 판에도 안 놓인 채 바닥에 밑면을
+        대는 그 프레임에 finish("dropped") 를 부르고 `done` 이 된다 -- 시트: "상품이 바닥에
+        떨어지면 그 상품의 평가는 거기서 끝난다. 떨어진 상품을 다시 줍는 것은 허용하지 않는다".
         그 뒤의 update 는 무시된다.
         """
         if self.done:
@@ -289,31 +283,21 @@ class ProductScorer:
                      np.asarray(crate_pos, dtype=float), tuple(float(v) for v in crate_quat),
                      shelf, contact_N, speed_mm_s)
         self.n += 1
-        # ---- 채점 종료 ①: 떨어짐 = 상자 밖으로 나온 뒤, 어느 판에도 안 놓인 채 **바닥·탁자·상자 바닥 중 하나에
-        # 밑면이 닿아** 3초 멈춰 있음. "테두리 아래에서 멈춤" 만으로 가르면 오른손이 상품을 낮게(z 0.67~0.75) 든 채
-        # 서 있는 판(demo_02·03)이 떨어진 것으로 찍힌다 -- 든 상품은 공중에 있고 떨어진 상품은 무언가 위에 있다.
-        # 자는 판 위 판정과 같은 ON_BOARD_MM, 높이는 전부 코드의 상수다 (TABLE_TOP · CRATE_FLOOR).
+        # ---- 채점 종료 ①: 떨어짐 = 상자 밖으로 나온 뒤, 어느 판에도 안 놓인 채 **바닥에 밑면이 닿은**
+        # 그 순간. 바닥은 바닥이다 -- 탁자 위나 상자 속은 여기서 보지 않는다 (사용자 2026-09-03). 기다리지도
+        # 않는다: 바닥에 놓여 있으면 떨어뜨린 것이다.
+        # "테두리 아래" 만으로 가르면 안 된다: 오른손이 상품을 낮게(z 0.67~0.75) 든 채 서 있는 판(demo_02·03)이
+        # 떨어진 것으로 찍힌다 -- 든 상품은 공중에 있고 떨어진 상품은 바닥에 닿아 있다. 자는 판 위 판정과 같은
+        # ON_BOARD_MM 이다.
         if self.ever["B8"] is not None:
             q = tuple(float(v) for v in product_quat)
-            resting = (board_under(p, q, self.size)[0] is None
-                       and self._on_floor_table_or_crate(p, q, in_crate))
-            still = speed_mm_s is not None and float(speed_mm_s) < THRESHOLD["still_mm_s"]
-            self.still_low = self.still_low + 1 if (resting and still) else 0
-            if self.still_low >= self.watch_frames:
+            if board_under(p, q, self.size)[0] is None and self._on_floor(p, q):
                 self.finish("dropped")
 
-    def _on_floor_table_or_crate(self, p, q, in_crate):
+    def _on_floor(self, p, q):
+        """상품의 밑면이 바닥(z = 0)에 닿아 있나. 허용 폭은 판 위 판정과 같은 ON_BOARD_MM."""
         u = underside_z(p, q, self.size)
-        lo, hi = ON_BOARD_MM[0] / 1000.0, ON_BOARD_MM[1] / 1000.0
-        if lo <= u <= hi:                                              # 바닥
-            return True
-        if self.table_pos is not None and abs(float(p[0]) - self.table_pos[0]) <= TABLE_HALF[0] \
-                and abs(float(p[1]) - self.table_pos[1]) <= TABLE_HALF[1] and lo <= u - TABLE_TOP <= hi:
-            return True                                                # 탁자 위
-        if abs(float(in_crate[0])) <= CRATE_HALF[0] and abs(float(in_crate[1])) <= CRATE_HALF[1] \
-                and lo <= u - (self.rim - CRATE_H + CRATE_FLOOR) <= hi:
-            return True                                                # 상자 속
-        return False
+        return ON_BOARD_MM[0] / 1000.0 <= u <= ON_BOARD_MM[1] / 1000.0
 
     # ---- [그 시점에] ------------------------------------------------------------------------
     def finish(self, reason="last"):
@@ -511,8 +495,7 @@ def score_npz(path, products=None, end_frame=None):
                                  tuple(float(v) for v in taskB_restock.product(pname)["size"]))
         back_key = f"obj/l{layer}_s{col + COLS:02d}"
         sc = ProductScorer(name, (layer, col), gaps, neighbours,
-                           back_key if back_key in S else None, hz=hz,
-                           table_pos=scene.get("table_pos"))
+                           back_key if back_key in S else None, hz=hz)
         for t in range(n):
             speed = None if t == 0 else float(np.linalg.norm(P[t, :3] - P[t - 1, :3])) * 1000.0 * hz
             sc.update(t, P[t, :3], P[t, 3:7], C[t, :3], C[t, 3:7],

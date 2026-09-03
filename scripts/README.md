@@ -235,46 +235,82 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
 
 ### 장면에 있는 것
 
-**진열대** — 다섯 단이 상품으로 차 있습니다. 그중 위 두 단(3단과 2단)의 앞줄에서
-1~3 칸이 비어 있습니다. 비어 있는 칸 **뒤에는 그 칸에 들어갈 상품이 서 있습니다.**
-무엇을 채워야 하는지는 진열대를 보면 알 수 있습니다.
+**진열대** — 다섯 단이 상품으로 차 있습니다. 위 두 단(3단과 2단)의 앞줄 중 **한 칸이
+비어 있습니다.** 비어 있는 칸 뒤에는 그 칸에 들어갈 상품이 서 있어서, 무엇을 채워야
+하는지는 진열대를 보면 알 수 있습니다. `--gaps` 로 두 칸·세 칸까지 늘립니다.
 
 **책상 위 파란 상자** — 빈 칸 수만큼 상품이 들어 있습니다. 상자의 첫 번째 상품이
 첫 번째 빈 칸으로, 두 번째가 두 번째 빈 칸으로 갑니다.
 
-**로봇** — 진열대를 마주 보고 **바퀴가 바닥에 닿은 채로** 섭니다. 공중에서 떨어지지
-않습니다. 로봇 USD 의 정지 자세는 가장 낮은 바퀴를 0.3045 m 에 놓기 때문에, 손대지
-않으면 에피소드마다 218 mm 를 낙하하고 튄 자리에 서게 됩니다. 그래서 스폰 직후 실제
-바퀴 높이를 재서 그만큼 로봇을 내려 앉힙니다(`settle_on_ground`). 돌리면 그 숫자를
-찍어 줍니다.
+**로봇** — 상자를 마주 보고 섭니다. 시연을 모을 때 로봇이 서던 그 자세 그대로입니다:
+베이스 (-0.280, -0.276), yaw -87.3 도, 몸통 높이 -0.22 m, 고개 28 도 숙임, 양팔은
+곧게 편 채 어깨만 20 도 벌림. 진열대는 이 자세에서 뒤쪽에 있으므로, 어느 칸이 비었는지
+보려면 로봇이 몸을 돌려야 합니다. 값은 `task_b_demo.py` 의 `START_*` 상수에 있고,
+출처는 그 옆 주석이 적어 둡니다.
 
 **카메라** — 채점이 정책에게 보내는 관측은 세 대입니다: 머리 `head_l`(672×376,
 실기 ZED 좌안)과 양 손목 `wrist_l`/`wrist_r`(424×240, D405). 이 데모 스크립트는
 아직 옛 구성을 스폰하며, 씬 생성기 교체와 함께 이 값으로 맞춰집니다.
 
-### 장면 하나는 seed 하나가 정합니다
+### 상품 이름은 두 가지입니다
 
-`--seed` 가 같으면 어디서 몇 번을 돌려도 같은 장면입니다. 어느 상품이 어느 칸에
-서는지, 어느 칸이 비는지, 상자에 무엇이 담기는지가 모두 그 수에서 나옵니다.
+상품 하나에 이름이 둘 붙어 있고, 쓰이는 곳이 다릅니다.
 
-```bash
---seed 1000        # 이 장면
---seed 1001        # 다른 장면
---gaps 1           # 빈 칸을 하나로 고정 (그냥 두면 seed 가 1~3 중에서 고릅니다)
+| | 예 | 어디에 나오나 |
+|---|---|---|
+| 코드용 이름 | `pringles_original_small` | 상품 폴더와 그 안의 USD 파일 이름, `manifest.json` · `orientation.json` · `display_yaw.json` · `shapes.json` 의 키, 장면 JSON 의 `product` |
+| 영어 이름 | `small original Pringles tube` | 로봇에게 주는 지시문, 장면 JSON 의 `label` |
+
+코드용 이름 하나로 그 상품의 모든 것이 이어집니다. 상품을 하나 정했으면 이 이름으로
+에셋과 설정을 전부 찾을 수 있습니다.
+
+```
+products/pringles_original_small/pringles_original_small.usd   스폰되는 USD
+manifest.json    의 "pringles_original_small"                  크기 · 무게 · 콜라이더
+orientation.json 의 "pringles_original_small"                  어느 면이 위인가
+display_yaw.json 의 "pringles_original_small"                  진열될 때 몇 도 돌아가는가
+shapes.json      의 "pringles_original_small"                  상자인가 원통인가
 ```
 
-### 옵션
+영어 이름은 사람에게 보여 주는 쪽입니다. 로봇에게 주는 지시문에 이 이름이 들어갑니다.
+시연 기록에 실려 있는 문장이 이렇습니다.
 
-| 옵션 | 뜻 |
-|---|---|
-| `--seed N` | 장면을 정하는 수 (기본 1000) |
-| `--gaps {1,2,3}` | 빈 칸 개수를 고정합니다 |
-| `--seconds S` | S 초 동안 세워 두고 끝냅니다. 0 이면 창을 닫을 때까지 |
-| `--headless` | 화면 없이 돌립니다 |
-| `--scene-json FILE` | 장면 내용을 JSON 으로 저장합니다 |
-| `--shot FILE.png` | 로봇 머리 카메라가 보는 그림을 한 장 저장합니다 |
+```
+take the Buldak stir-fried noodle cup out of the crate and put it into the empty slot on the shelf
+```
 
-### 장면을 글로 받기
+### `--gaps` 와 `--seed`
+
+장면 하나는 이 두 값으로 정해집니다. `--gaps` 는 진열대에서 몇 칸을 비울지, `--seed` 는
+그렇게 비운 장면 중 몇 번째 것을 볼지입니다.
+
+`--gaps` 는 1, 2, 3 중 하나이고 아무것도 안 쓰면 1 입니다. 빈 칸 하나에 상자 속 상품
+하나가 짝지어지므로, 두 칸을 비우면 상자에 상품이 두 개 들어가고 로봇은 두 번 옮깁니다.
+빈 칸이 둘 이상이어도 한 열에서 두 칸이 비지는 않고, 상자에 같은 상품이 두 개 들어가지도
+않습니다.
+
+`--seed` 는 장면 번호입니다. 같은 `--gaps` 와 같은 `--seed` 를 넣으면 언제나 똑같은
+장면이 나옵니다. 어느 컴퓨터에서 돌려도 그렇습니다.
+
+둘 중 하나만 바꿔도 장면은 통째로 새로 뽑힙니다. 어느 칸이 비는지, 상자에 무슨 상품이
+들어가는지, 나머지 칸에 무엇이 놓이는지, 책상이 어느 쪽을 보는지가 전부 달라집니다.
+있던 장면에 빈 칸 하나가 더 생기는 것이 아닙니다.
+
+### 예시
+
+```bash
+--gaps 1 --seed 1000    # 2단 앞줄 칸1 이 빈다.       상자: small original Pringles tube
+--gaps 1 --seed 1001    # 3단 앞줄 칸0 이 빈다.       상자: Chocobi snack box
+--gaps 2 --seed 1001    # 2단 앞줄 칸1 과 칸0 이 빈다. 상자: baked potato snack box,
+                        #                            ABC chocolate cookie box
+```
+
+같은 1001 번이라도 빈 칸이 1 에서 2 로 바뀌면 비는 자리가 3단에서 2단으로 옮겨 가고,
+상자에 있던 Chocobi 는 아예 나오지 않습니다.
+
+### 창을 띄우지 않고 장면 확인하기
+
+창을 열지 않고도 그 장면에 무엇이 있는지 알 수 있습니다.
 
 ```bash
 ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
@@ -282,37 +318,35 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
     --seconds 1 --scene-json /workspace/user/scene_1000.json
 ```
 
-터미널에 진열대의 단·줄·칸별 상품과 좌표, 빈 칸, 상자 속 상품이 찍히고 같은 내용이
-JSON 으로 남습니다. `/workspace/user` 는 호스트의 `workspace/` 라서 컨테이너 밖에서
-바로 열립니다.
+`--scene-json` 을 주면 진열대 각 칸의 상품과 좌표, 비어 있는 칸, 상자 속 상품이 JSON
+파일 하나로 저장됩니다. `/workspace/user` 는 호스트의 `workspace/` 폴더라서, 저장된
+파일은 컨테이너 밖에서 바로 열립니다.
+
+JSON 과 같은 내용이 터미널에도 찍힙니다.
 
 ```
-[장면] seed 1000, 빈 칸 3 개
+[장면] seed 1000, 빈 칸 1 개
 
   진열대 -- 단/줄/칸, 앞줄(row 0)이 손님 쪽
     3단  (판 높이 1.155 m)
-      줄0 칸1  Chocobi snack box             (+0.568, -0.003, 1.224)  [chocobi]
-      줄1 칸0  Buldak stir-fried noodle cup  (+0.734, -0.276, 1.213)  [samyang_buldak_cup]
-      줄1 칸1  Chocobi snack box             (+0.715, +0.004, 1.224)  [chocobi]
-      줄1 칸2  Coca-Cola Zero can            (+0.761, +0.276, 1.220)  [cocacola_zero]
+      줄0 칸0  strawberry Oreo box           (+0.575, -0.276, 1.269)  [oreo_strawberry]
+      줄0 칸1  Maxim coffee mix box          (+0.575, +0.004, 1.247)  [maxim_coffee]
+      줄0 칸2  baked sweet potato snack box  (+0.572, +0.277, 1.239)  [guun_goguma]
+      줄1 칸0  strawberry Oreo box           (+0.708, -0.283, 1.269)  [oreo_strawberry]
     2단  (판 높이 0.746 m)
       ...
 
   비어 있는 칸 -- 상자 속 i 번째 상품이 i 번째 칸에 들어간다
-    0: 3단 줄0 칸2  <- Coca-Cola Zero can  [cocacola_zero]
-    1: 3단 줄0 칸0  <- Buldak stir-fried noodle cup  [samyang_buldak_cup]
-    2: 2단 줄0 칸1  <- small original Pringles tube  [pringles_original_small]
+    0: 2단 줄0 칸1  <- small original Pringles tube  [pringles_original_small]
 
   상자 속 상품
-    0: Coca-Cola Zero can            (-0.116, -0.821, 0.800)  [cocacola_zero]
-    1: Buldak stir-fried noodle cup  (-0.280, -0.834, 0.789)  [samyang_buldak_cup]
-    2: small original Pringles tube  (-0.436, -0.826, 0.788)  [pringles_original_small]
+    0: small original Pringles tube  (-0.252, -0.801, 0.788)  [pringles_original_small]
 
   상자 -0.282, -0.855, 0.727    책상 -0.282, -0.903    진열대 앞면 x = 0.470
 ```
 
-상품에는 **이름**(`cocacola_zero`)과 **영어 표기**(`Coca-Cola Zero can`)가 둘 다
-있습니다. 지시문에 쓰이는 것은 영어 표기 쪽입니다.
+출력에서 앞의 `small original Pringles tube` 가 영어 이름이고, 대괄호 안의
+`pringles_original_small` 이 코드용 이름입니다.
 
 ### 화면 없이 장면을 눈으로 보기
 
@@ -328,8 +362,7 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
 ### 좌표
 
 바닥이 z = 0 입니다. 진열대는 -X 를 보고 서 있고 그 **앞면이 x = 0.470** 입니다.
-로봇은 원점 근처에서 진열대를 마주 봅니다. 책상과 상자는 로봇의 오른쪽(-Y)에
-있습니다.
+로봇은 원점 근처에서 상자를 마주 봅니다. 책상과 상자는 로봇의 -Y 쪽에 있습니다.
 
 에셋이 어디에 어떤 이름으로 놓여 있는지는 루트 [`README.md`](../README.md) 의
 **환경 안의 에셋** 절에 있습니다.

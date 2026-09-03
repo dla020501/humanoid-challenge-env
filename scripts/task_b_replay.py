@@ -48,6 +48,7 @@
 import argparse
 import glob
 import os
+import threading as _threading
 
 from isaaclab.app import AppLauncher
 
@@ -391,4 +392,13 @@ def main():
 
 
 main()
+# Kit 의 종료가 이 이미지에서는 돌아오지 않는다. 실측 2026-09-03: 장면을 다 세우고 물리·렌더가
+# 0.3 초에 끝난 뒤 `simulation_app.close()` 에서 34 분을 매달렸고, 프로세스는 죽지도 않고 CPU 를
+# 계속 썼다. 그러면 --headless 로 돌린 참가자는 끝나지 않는 명령을 보게 된다.
+#
+# 그래서 정상 종료를 먼저 시도하되, 10 초 안에 안 돌아오면 프로세스를 그대로 끝낸다. 이 시점에는
+# 장면 JSON 도 카메라 그림도 이미 파일에 쓰인 뒤라 잃는 것이 없다.
+_exit_guard = _threading.Timer(10.0, os._exit, (0,))
+_exit_guard.daemon = True
+_exit_guard.start()
 simulation_app.close()
