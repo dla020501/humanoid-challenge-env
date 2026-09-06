@@ -659,7 +659,7 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
 * 상품이 바닥에 떨어지면 **그 즉시 채점이 끝나고** 그 뒤는 보지 않습니다.
   다시 주워 놓아도 점수가 없습니다.
 
-`taskb_score.py` 는 혼자서도 돕니다 -- `python3 taskB/taskb_score.py taskB/demos/demo_00.npz` 가 같은 표를
+`taskb_score.py` 는 혼자서도 돕니다 -- 컨테이너 안에서 `${ISAACLAB_PATH}/_isaac_sim/python.sh taskB/taskb_score.py taskB/demos/demo_00.npz` 가 같은 표를
 찍습니다 (Isaac 없이, numpy 만).
 
 ### 옵션

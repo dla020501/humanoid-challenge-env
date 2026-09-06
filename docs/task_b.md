@@ -108,8 +108,9 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
 채점 스크립트(`taskb_score.py`)는 Isaac Sim 구동 없이 Numpy 환경만 구성되어 있다면 독립적으로 실행 가능합니다.
 
 ```bash
-# 호스트 PC 에서 실행합니다 (numpy 필요). 컨테이너 안에서는 python3 대신 ${ISAACLAB_PATH}/_isaac_sim/python.sh 를 쓰세요.
-python3 scripts/taskB/taskb_score.py scripts/taskB/demos/demo_00.npz
+# 컨테이너 안에서 실행합니다 (진열대·상자 모듈을 이미지에서 읽습니다)
+cd /workspace/cyclo_lab
+${ISAACLAB_PATH}/_isaac_sim/python.sh /workspace/challenge_scripts/taskB/taskb_score.py /workspace/challenge_scripts/taskB/demos/demo_00.npz
 ```
 
 *평가 항목별 상세 측정 방식 및 임계값(Threshold)은 해당 스크립트 내부의 `RUBRIC`, `THRESHOLD` 변수 및 `scripts/README.md`에서 확인하실 수 있습니다.*
