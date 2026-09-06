@@ -412,7 +412,7 @@ python3 scripts/taskb_score.py scripts/demos/demo_00.npz
 
 ## 환경 에셋 (Assets) 구조
 
-시뮬레이션 환경 구성에 필요한 에셋은 도커 이미지 내 `/workspace/assets` 경로에 위치하며, 코드 상에서는 `source/cyclo_lab/data` 심볼릭 링크를 통해 접근합니다. 이 폴더에는 **Task A와 B**를 실행하는 데 필요한 필수 에셋만 경량화되어 포함되어 있습니다.
+시뮬레이션 환경 구성에 필요한 에셋은 도커 이미지 내 `/workspace/assets` 경로에 위치하며, 코드 상에서는 `source/cyclo_lab/data` 심볼릭 링크를 통해 접근합니다. 이 폴더에는 **Task A·B·C**를 실행하는 데 필요한 필수 에셋만 경량화되어 포함되어 있습니다.
 
 ```text
 data/
@@ -422,7 +422,8 @@ data/
   ├── fixtures/              # 매장 집기 에셋 (456 KB)
   │   ├── shelf/shelf.usd      # 진열대 (동일 폴더 내 재질 이미지 4장 포함)
   │   ├── table/table.usd      # 목적지 옆 책상
-  │   └── crate/crate.usd      # 파란 상자
+  │   ├── crate/crate.usd      # 파란 상자
+  │   └── scanner/scanner_taskC.usd  # 과제 C 바코드 스캐너
   │
   ├── products/              # 과제 B 목표 상품 36종 (196 MB)
   │   ├── manifest.json        # 상품별 크기, 무게, 콜라이더, USD 경로 정보
@@ -433,6 +434,16 @@ data/
   │       ├── cocacola_zero.usd       # 시뮬레이션에 스폰되는 최상위 USD
   │       ├── cocacola_zero_skin.usd  # 시각적 메시(Mesh) 및 재질(Material)
   │       └── textures/albedo.png     # 텍스처 이미지
+  │
+  ├── products_c/            # 과제 C 목표 상품 8종 (39 MB) — QR 타일이 붙은 별도 파일
+  │   ├── products.json        # 이름·가격·QR 타일 위치
+  │   ├── _qr_tiles.json       # 타일 법선과 크기
+  │   ├── taskC_products.json  # 크기·콜라이더
+  │   ├── taskC_barcodes.json  # QR 면의 꼭짓점
+  │   └── cocacola_zero/       # 개별 상품 디렉토리 예시 (총 8종)
+  │       ├── cocacola_zero_phys.usd  # 시뮬레이션에 스폰되는 USD (옆의 .usdc·텍스처를 상대참조)
+  │       ├── cocacola_zero.usdc      # 메시와 재질
+  │       └── cocacola_zero.png       # 텍스처 이미지
   │
   └── store/                 # 과제 A 매장 환경 (184 MB)
       ├── manifest.json        # 매장 내 진열대·냉장고 20종 및 배치 상품 35종 정보

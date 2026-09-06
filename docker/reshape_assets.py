@@ -27,6 +27,7 @@
         shelf/shelf.usd + 재질 맵 4 장
         table/table.usd
         crate/crate.usd
+        scanner/scanner_taskC.usd   과제 C 의 바코드 스캐너
       products/                과제 B 가 쓰는 상품 36 개
         manifest.json      크기·무게·콜라이더·usd 상대경로
         orientation.json   어느 면이 위인가
@@ -36,6 +37,14 @@
           <이름>.usd        스폰되는 것. ./<이름>_skin.usd 를 상대참조한다
           <이름>_skin.usd   보이는 메시와 재질
           textures/albedo.png
+      products_c/              과제 C 가 쓰는 상품 8 개 -- QR 타일이 붙은 별도 파일
+        products.json          이름·가격·QR 타일 위치
+        _qr_tiles.json         타일 법선과 크기
+        taskC_products.json    크기·콜라이더
+        taskC_barcodes.json    QR 면의 꼭짓점
+        <이름>/
+          <이름>_phys.usd      스폰되는 것. ./<이름>.usdc 와 텍스처를 상대참조한다
+          <이름>.usdc, 텍스처 1 장, info.json
       store/                   매장. 앞의 둘은 매장을 '말로' 적은 것이고,
         manifest.json            진열대·냉장고 20 종과 거기 놓이는 상품 35 종의 목록.
         layout.json              매장 배치. 위 products 와는 이름이 하나도 겹치지 않는
@@ -319,6 +328,24 @@ def main():
     copy(f"{PROPS}/manifest.json", f"{OUT}/store/manifest.json")
     copy(f"{PROPS}/layout.json", f"{OUT}/store/layout.json")
     print("[store]    manifest.json layout.json")
+
+    # ---------------------------------------------------------------- 과제 C
+    # 상품은 과제 B 의 36 개와 파일이 다르다 -- QR 타일이 메시에 붙박여 있고, 텍스처와 .usdc 를
+    # 상대경로로 문다(2026-09-06 확인). 그래서 폴더째 옮기고 고쳐 쓰지 않는다. 어느 8 종인지는
+    # build_image.sh 의 KEEP 이 정하고(scripts/taskC/taskC_products.py 와 같은 목록), 여기서는
+    # stage 에 온 폴더를 센다.
+    qr = f"{RAW}/taskC/out/qr_usd"
+    names_c = sorted(d for d in os.listdir(qr) if os.path.isdir(f"{qr}/{d}"))
+    for name in names_c:
+        for f in sorted(os.listdir(f"{qr}/{name}")):
+            copy(f"{qr}/{name}/{f}", f"{OUT}/products_c/{name}/{f}")
+    for f in ("products.json", "_qr_tiles.json"):
+        copy(f"{qr}/{f}", f"{OUT}/products_c/{f}")
+    for f in ("taskC_products.json", "taskC_barcodes.json"):
+        copy(f"{PROPS}/{f}", f"{OUT}/products_c/{f}")
+    copy(f"{PROPS}/fixtures/scanner_taskC/scanner_taskC.usd",
+         f"{OUT}/fixtures/scanner/scanner_taskC.usd")
+    print(f"[taskC]    products_c/ {len(names_c)} 개, fixtures/scanner/scanner_taskC.usd")
 
     # ---------------------------------------------------------------- 과제 A 의 매장
     # 위의 manifest/layout 은 매장을 **말로** 적은 것이고, 아래는 매장 **자체**다.

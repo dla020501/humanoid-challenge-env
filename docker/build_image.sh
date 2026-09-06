@@ -5,7 +5,7 @@
 #
 # 세 걸음이다.
 #
-#   1. 추린다   대회 환경 저장소에서 과제 A 와 B 에 필요한 것만 docker/stage/ 로 옮긴다.
+#   1. 추린다   대회 환경 저장소에서 과제 A·B·C 에 필요한 것만 docker/stage/ 로 옮긴다.
 #               아래 KEEP 배열이 "참가자에게 무엇을 주는가" 의 전부다 -- 단, 매장 에셋만은
 #               예외로 넉넉히 옮겨 두고 2 단계에서 실제로 쓰이는 것만 골라 담는다. 그 이유는
 #               KEEP 안에 적어 두었다.
@@ -37,9 +37,10 @@ SRC="$(cd "$SRC" && pwd)"
 # 이미지에 들어가는 것 전부. 경로는 대회 환경 저장소의 루트 기준.
 #
 # 여기에 **없는** 것 중 설명이 필요한 셋:
-#   taskC_products/         과제 C 의 상품 452 MB. 과제 C 의 장면이 들어올 때 함께 온다.
-#                           매장 정의(store/manifest.json)가 이름으로 언급하기는 하지만,
-#                           과제 A 의 매장 USD 는 자기 상품을 스스로 물고 있어서 필요 없다.
+#   taskC_products/         옛 과제 C 상품 452 MB. 과제 C 는 이것 대신 QR 타일이 붙은 8 종
+#                           (`taskC/out/qr_usd/`, 아래 KEEP)을 쓴다. 매장 정의(store/manifest.json)
+#                           가 이름으로 언급하기는 하지만, 과제 A 의 매장 USD 는 자기 상품을
+#                           스스로 물고 있어서 필요 없다.
 #   our_scan_data/          상품 36 개가 taskB_products/ 와 md5 단위로 겹치는 사본이다
 #                           (2026-08-25 확인). 옛날에는 이것도 넣어야 상품에 색이 입었는데,
 #                           skin USD 가 텍스처를 그쪽 절대경로로 물고 있었기 때문이다.
@@ -78,6 +79,24 @@ KEEP=(
   source/cyclo_lab/data/props/convstore/taskB_products
   source/cyclo_lab/data/Table/Table.usd
   source/cyclo_lab/data/Crate/blue_box.usd
+
+  # 과제 C -- QR 타일이 붙은 상품 8 종(39 MB)과 부속 JSON. 상품은 `<이름>_phys.usd` 가 옆의
+  # `<이름>.usdc` 와 텍스처를 상대경로로 물고 있어 폴더째 옮긴다. 이 폴더들은 수집 파이프라인의
+  # 생성물이라 저장소에 커밋돼 있지 않다 -- 과제 C 에셋 묶음(taskC_assets.tar.gz, MANIFEST.md5
+  # 동봉)을 SRC 루트에 풀어 둔 뒤 빌드한다. 스캐너(`fixtures/scanner_taskC/`)는 위 `fixtures`
+  # 에 이미 들어 있다. 2 단계(reshape)가 `products_c/` 와 `fixtures/scanner/` 로 깐다.
+  taskC/out/qr_usd/pringles_original_small
+  taskC/out/qr_usd/pringles_sourcream_small
+  taskC/out/qr_usd/ottogi_cupnoodle_buldak
+  taskC/out/qr_usd/yegam_original
+  taskC/out/qr_usd/samyang_buldak_cup
+  taskC/out/qr_usd/chilsung_cider
+  taskC/out/qr_usd/cocacola_zero
+  taskC/out/qr_usd/lotte_sand
+  taskC/out/qr_usd/products.json
+  taskC/out/qr_usd/_qr_tiles.json
+  source/cyclo_lab/data/props/convstore/taskC_products.json
+  source/cyclo_lab/data/props/convstore/taskC_barcodes.json
 
   # 과제 A -- 매장 전체. 과제 B 가 진열대 하나 앞에서 벌어지는 것과 달리 과제 A 는 매장을
   # 가로지르므로 편의점이 통째로 필요하다.

@@ -87,6 +87,9 @@ PATCHES = [
     # `git pull` 만으로 갱신되고, 참가자가 코드를 바로 읽을 수 있기 때문이다.
     # 이미지가 과제 A 를 위해 품는 것은 매장 USD(184 MB) 하나뿐이고, 그것은 경로를 고칠
     # 것이 없다 -- `reshape_assets.copy_scene()` 이 원본 배치를 그대로 옮긴다.
+    #
+    # 과제 C 도 같다. 장면 정의(`scripts/taskC/`)는 이 저장소에 살고, 에셋 경로는 그 모듈이
+    # 스스로 `data/products_c`·`data/fixtures/scanner` 를 보므로 고칠 상수가 없다.
 ]
 
 
