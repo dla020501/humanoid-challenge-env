@@ -491,38 +491,65 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
 ```
 
 창이 뜨고, 그 안에 과제 C 의 **에피소드가 시작되는 순간**이 서 있습니다. 여기서
-멈춥니다. 집지도, 비추지도, 놓지도 않습니다.
+멈춥니다. 집지도, 비추지도, 놓지도 않습니다. 여러분의 정책이 첫 관측으로 받게 될
+그림을 그대로 보여 주는 것이 목적입니다.
+
+호스트에서 한 줄로 띄우려면 `run/run_task_c.sh` 를 쓰세요.
 
 ### 장면에 있는 것
 
-**매장** — 과제 A 와 같은 편의점 전체. 장면은 계산대 앞이고 로봇은 주행하지 않습니다.
-조명은 매장 USD 의 것(돔 + 천장 램프)만 씁니다 — 학습 데이터를 찍은 조명 그대로입니다.
+**매장과 계산대** — 과제 A 와 같은 편의점 전체가 들어옵니다. 장면은 매장 남서쪽
+**계산대** 앞이고, 과제 C 는 정지 과제라 로봇은 주행하지 않습니다.
 
-**계산대 위 빨간 띠** — 로봇 좌표로 앞 0.110 ~ 0.500 m, 왼쪽 -0.010 ~ 0.570 m 의
-사각형을 20 mm 빨간 테이프로 두른 자리입니다. 상판 높이는 0.9035 m. 계산대 직원 쪽 맨
-아래 선반판(바닥 위 10 cm)은 로봇 섀시가 올라타지 않도록 잘라냅니다(학습 데이터와 동일).
+**계산대 위 빨간 띠** — 상판(높이 0.9035 m) 위에 로봇 기준 앞 0.110 ~ 0.500 m,
+왼쪽 -0.010 ~ 0.570 m 의 사각형을 20 mm 빨간 테이프로 두른 자리입니다. 상품은 모두
+이 안에서만 스폰됩니다. 계산대 직원 쪽 맨 아래 선반판(바닥 위 10 cm)은 로봇 섀시가
+올라타지 않도록 잘라냅니다 -- 학습 데이터를 모을 때와 같습니다.
 
-**상품 셋** — 8 종 가운데 seed 가 고른 셋. 슬롯 0 이 집을 상품입니다. 놓이는 규칙:
+**상품 셋** — 8 종 가운데 시드가 고른 셋이 띠 안에 놓입니다. **슬롯 0 이 집을
+상품**이고 나머지 둘은 배경입니다. 놓이는 규칙은 이렇습니다.
 
 | 규칙 | 값 |
 |---|---|
-| QR 면 방위 | 로봇의 정 오른쪽(세계 -Y). 오차 3 도 안 |
-| 원통(프링글스·컵·캔) | 서 있음. 절반은 뒤집어 세움(QR 이 상하 반전) |
+| QR 면 방위 | 로봇의 정 오른쪽(월드 -Y). 오차 3 도 안 |
+| 원통(프링글스·컵라면·캔) | 서 있음. 절반은 뒤집어 세움(QR 이 상하 반전) |
 | 상자(예감·롯데샌드) | 눕힘. QR 면이 옆을 봄 |
-| 상품 간격 | 10 cm 이상 (회전한 바닥면 기준) |
-| 스폰 뒤 | 3 초 물리 정착. 규칙을 어기면 같은 seed 안에서 재딜 (최대 50 회) |
+| 상품 간격 | 표면 기준 10 cm 이상 |
+| 스폰 뒤 | 3 초 물리 정착. 규칙을 어기면 같은 시드 안에서 재배치 (최대 50 회) |
 
-**스캐너** — 왼손이 드는 자리 (로봇 좌표 0.330, -0.158, 1.161) 에 중력 없이 떠 있습니다.
+**스캐너** — 왼손이 드는 자리(로봇 좌표 0.330, -0.158, 1.161)에 중력 없이 떠 있습니다.
 매장 USD 에 놓여 있던 정적 스캐너 소품과 계산대 옆 바구니는 이 데모가 끕니다.
 
-**로봇** — 계산대 앞 (-3.45, -4.27) 에서 +Y 를 봅니다. 몸통 0.0, 고개 39.8 도 아래,
-양팔 스토우. 바퀴가 바닥에 닿아 있습니다.
+**로봇** — 계산대를 마주 보고 섭니다. 학습 데이터를 모을 때 로봇이 서던 그 자세
+그대로입니다: 베이스 (-3.450, -4.270), yaw +90 도, 몸통 리프트 0.0 m, 고개 39.8 도
+숙임, 양팔 스토우. 바퀴가 바닥에 닿아 있습니다. 값은 `taskC/taskC_layout.py` 에 있고,
+출처는 그 옆 주석이 적어 둡니다.
 
-**카메라** — 머리 `head_cam` 672×376, 손목 `left_wrist_cam`/`right_wrist_cam` 424×240.
+**카메라** — 채점이 정책에게 보내는 관측은 세 대입니다: 머리 `head_cam`(672×376,
+ZED 좌안)과 양 손목 `left_wrist_cam`/`right_wrist_cam`(424×240, D405).
 
-### 상품 이름
+### 상품 이름은 두 가지입니다
 
-| 코드용 이름 | 사람이 읽는 이름 | 모양 |
+과제 B 와 같이 상품 하나에 이름이 둘 붙어 있고, 쓰이는 곳이 다릅니다.
+
+| | 예 | 어디에 나오나 |
+|---|---|---|
+| 코드용 이름 | `pringles_original_small` | 상품 폴더와 그 안의 USD 파일 이름(`<이름>_phys.usd`), `products.json` · `_qr_tiles.json` · `taskC_products.json` · `taskC_barcodes.json` 의 키, 장면 JSON 의 `product`, `--products` 옵션 |
+| 영어 이름 | `small original Pringles tube` | 로봇에게 주는 지시문, 장면 JSON 의 `label` |
+
+코드용 이름 하나로 그 상품의 모든 것이 이어집니다.
+
+```
+products_c/pringles_original_small/pringles_original_small_phys.usd   스폰되는 USD (옆의 .usdc 와 텍스처를 상대참조)
+products.json       의 "pringles_original_small"                     이름 · 가격 · QR 타일 위치
+_qr_tiles.json      의 "pringles_original_small"                     타일 법선과 크기
+taskC_products.json 의 "pringles_original_small"                     크기 · 콜라이더
+taskC_barcodes.json 의 "pringles_original_small"                     QR 면의 꼭짓점
+```
+
+대상 상품 8 종입니다.
+
+| 코드용 이름 | 영어 이름 | 형상 |
 |---|---|---|
 | `pringles_original_small` | small original Pringles tube | 원통 |
 | `pringles_sourcream_small` | small sour cream Pringles tube | 원통 |
@@ -533,56 +560,54 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
 | `yegam_original` | Yegam original potato chip tube | 상자 |
 | `lotte_sand` | Lotte Sand biscuit box | 상자 |
 
+### `--seed` 와 `--products`
+
+장면 하나는 `--seed` 하나로 정해집니다. 어느 상품 셋이 오는지, 각각이 띠 안 어디에
+어떤 자세로 놓이는지가 그 수에서 나옵니다. 같은 `--seed` 를 넣으면 언제나 똑같은
+장면이 나옵니다. 어느 컴퓨터에서 돌려도 그렇습니다.
+
+`--products` 는 상품 셋을 코드용 이름으로 직접 고르는 옵션입니다. 쉼표로 셋을 주면
+시드가 고르는 대신 그 셋을 쓰고, **첫 번째가 집을 상품**입니다. 자리와 자세는 그대로
+시드가 정합니다.
+
+### 예시
+
+```bash
+--seed 1000                                          # 집을 것 small original Pringles tube, 배경 lotte_sand · pringles_sourcream_small
+--seed 1001                                          # 다른 장면
+--products cocacola_zero,lotte_sand,yegam_original   # 코카콜라를 집는다. 자리는 시드가 정한다
+--check                                              # 에셋과 띠 기하만 검사하고 끝낸다. Isaac Sim 을 안 띄워 1 초
+```
+
 ### 옵션
 
-| 옵션 | 뜻 |
-|---|---|
-| `--seed N` | 장면을 정하는 수 (기본 1000) |
-| `--products a,b,c` | 상품 셋을 코드용 이름으로 직접 고릅니다. 첫 번째가 집을 상품 |
-| `--seconds S` | S 초 동안 세워 두고 끝냅니다. 0 이면 창을 닫을 때까지 (`--headless` 면 1 초) |
-| `--headless` | 화면 없이 돌립니다 |
-| `--scene-json FILE` | 장면 내용을 JSON 으로 저장합니다 |
-| `--shot FILE.png` | 로봇 머리 카메라가 보는 그림을 한 장 저장합니다 |
-| `--check` | **에셋과 띠 기하만 검사하고 끝냅니다.** Isaac Sim 을 띄우지 않아 1 초면 됩니다 |
+```bash
+--seed N              장면을 정하는 수 (기본 1000)
+--products a,b,c      상품 셋을 코드용 이름으로 직접 고른다. 첫 번째가 집을 상품
+--seconds S           S 초 동안 세워 두고 끝낸다. 0 이면 창을 닫을 때까지 (--headless 면 1 초)
+--headless            화면 없이 돌린다
+--scene-json FILE     장면 내용을 JSON 으로 저장한다
+--shot FILE.png       로봇 머리 카메라가 보는 그림을 한 장 저장한다
+--check               에셋과 띠 기하만 검사하고 끝낸다
+```
 
-### 먼저 `--check` 로 확인하기
+### 창을 띄우지 않고 장면 확인하기
+
+창을 열지 않고도 그 장면에 무엇이 있는지 알 수 있습니다.
 
 ```bash
 ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
-    /workspace/challenge_scripts/task_c_demo.py --check
+    /workspace/challenge_scripts/task_c_demo.py --seed 1000 --headless \
+    --seconds 1 --scene-json /workspace/user/scene_c_1000.json
 ```
 
-```
-[검사] 과제 C 장면 기하와 에셋 -- Isaac Sim 없이
+`--scene-json` 을 주면 상품 셋의 이름·좌표·자세, 빨간 띠, 로봇 시작 자세, 스캐너 자리가
+JSON 파일 하나로 저장됩니다. 상품마다 `pos`(월드)·`pos_robot`(로봇 좌표: x 앞, y 왼쪽)·
+`quat`·`quat_robot`·`cylinder`·`qr_az_err_deg`·`gap_min_m` 가 들어 있고, 그 밖에 `band`,
+`counter`, `robot`, `scanner`, `cameras`, `redeal` 가 있습니다. `/workspace/user` 는 호스트의
+`workspace/` 폴더라서, 저장된 파일은 컨테이너 밖에서 바로 열립니다.
 
-  계산대    중심 (-4.000, -4.220)  상판 0.9035  크기 3.233 x 1.800
-  로봇      (-3.450, -4.270)  yaw +90.0 도  몸통 +0.000  고개 39.8 도 아래
-  빨간 띠   로봇 좌표 x 0.1101~0.4999  y -0.010~0.570  (테이프 20 mm 안쪽 x 0.130~0.480  y 0.010~0.550)
-  상품 8 종  /workspace/cyclo_lab/source/cyclo_lab/data/products_c
-    pringles_original_small    small original Pringles tube        71.7 x  71.7 x 101.0 mm  원통  O
-    pringles_sourcream_small   small sour cream Pringles tube      71.7 x  71.7 x 101.1 mm  원통  O
-    ottogi_cupnoodle_buldak    Ottogi Buldak cup noodle           101.5 x 101.5 x 102.2 mm  원통  O
-    yegam_original             Yegam original potato chip tube     55.0 x 210.0 x  55.0 mm  상자  O
-    samyang_buldak_cup         Buldak stir-fried noodle cup       102.5 x 102.5 x 110.9 mm  원통  O
-    chilsung_cider             Chilsung cider can                  66.1 x  66.3 x 125.2 mm  원통  O
-    cocacola_zero              Coca-Cola zero can                  65.9 x  65.9 x 122.8 mm  원통  O
-    lotte_sand                 Lotte Sand biscuit box              48.0 x 225.0 x  48.0 mm  상자  O
-  스캐너 USD /workspace/cyclo_lab/source/cyclo_lab/data/fixtures/scanner/scanner_taskC.usd
-  매장 USD  /workspace/cyclo_lab/source/cyclo_lab/data/store/scene/fixture_kit/out/store_scene.usd
-
-  판정: 문제 없음
-```
-
-상품 8 종의 USD 와 QR 타일 정보, 스캐너 USD, 매장 USD 가 제자리에 있는지 봅니다. 문제가
-있으면 `판정:` 줄 다음에 `!` 로 시작하는 줄로 하나씩 찍히고 종료 코드가 1 이 됩니다.
-
-### 장면을 글로 받기
-
-```bash
-${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
-    /workspace/challenge_scripts/task_c_demo.py --seed 1000 --headless --seconds 1 \
-    --scene-json /workspace/user/scene_c_1000.json
-```
+JSON 과 같은 내용이 터미널에도 찍힙니다.
 
 ```
 [장면] seed 1000, 집을 것 small original Pringles tube [pringles_original_small]
@@ -612,11 +637,17 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
 [i] 장면이 섰다. 여기서 과제 C 가 시작한다.
 ```
 
-JSON 에는 같은 내용이 들어 있습니다. 상품마다 `pos`(세계)·`pos_robot`(로봇 좌표: x 앞,
-y 왼쪽)·`quat`·`quat_robot`·`cylinder`·`qr_az_err_deg`·`gap_min_m`, 그리고 `band`,
-`counter`, `robot`, `scanner`, `cameras`, `redeal`.
+출력에서 앞의 `small original Pringles tube` 가 영어 이름이고, 대괄호 안의
+`pringles_original_small` 이 코드용 이름입니다.
+
+`--check` 는 시뮬레이터를 띄우지 않고 상품 8 종의 USD 와 QR 타일 정보, 스캐너 USD,
+매장 USD 가 제자리에 있는지와 띠 기하만 봅니다. 문제가 있으면 `판정:` 줄 다음에 `!` 로
+시작하는 줄로 하나씩 찍히고 종료 코드가 1 이 됩니다.
 
 ### 화면 없이 장면을 눈으로 보기
+
+`--shot` 을 붙이면 로봇 머리 카메라가 보는 그림 한 장이 저장됩니다. 여러분의 정책이
+첫 관측으로 받게 될 바로 그 그림입니다.
 
 ```bash
 ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
@@ -627,5 +658,9 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
 ### 좌표
 
 바닥이 z = 0 이고 매장 좌표는 과제 A 와 같습니다. 계산대 중심 (-4.00, -4.22), 상판
-0.9035 m. 로봇 좌표는 로봇 발 밑이 원점, x 가 앞(세계 +Y), y 가 왼쪽(세계 -X)입니다.
-`taskC_layout.py` 의 `robot_to_world` / `world_to_robot` 이 그 변환입니다.
+0.9035 m. 로봇은 그 앞 (-3.45, -4.27) 에서 +Y 를 봅니다. 로봇 좌표는 로봇 발 밑이
+원점, x 가 앞(월드 +Y), y 가 왼쪽(월드 -X)입니다. `taskC/taskC_layout.py` 의
+`robot_to_world` / `world_to_robot` 이 그 변환입니다.
+
+에셋이 어디에 어떤 이름으로 놓여 있는지는 루트 [`README.md`](../README.md) 의
+**환경 안의 에셋** 절에 있습니다.
