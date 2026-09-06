@@ -11,6 +11,9 @@
 > 주최 측이 수집한 학습 데이터는 Hugging Face 에 있습니다:
 > **https://huggingface.co/datasets/SSU-RealityLab/2026CS-Store-Challenge**
 
+> ⚠️ **채점 항목과 가점 기준은 변할 수 있습니다.**
+> 위 채점기와 동봉된 데모 데이터는 **예시 파일**입니다. 변동이 있으면 오픈 카카오톡 방과 대회 사이트에 공지하겠습니다.
+
 ## 세 과제
 
 | | Task | 하는 일 | 로봇 |
@@ -341,9 +344,6 @@ python3 scripts/taskB/taskb_score.py scripts/taskB/demos/demo_00.npz
 ```
 
 *각 평가 항목별 구체적인 측정 방식과 임계값(Threshold) 수치는 해당 파이썬 파일 내부의 `RUBRIC` 및 `THRESHOLD` 변수, 그리고 `scripts/README.md` 문서에서 상세히 확인할 수 있습니다.*
-
-> ⚠️ **채점 항목과 가점 기준은 변할 수 있습니다.**
-> 위 채점기와 동봉된 데모 데이터는 **예시 파일**입니다. 변동이 있으면 오픈 카카오톡 방과 대회 사이트에 공지하겠습니다.
 
 
 ## Task C 환경 구성 및 실행 가이드
