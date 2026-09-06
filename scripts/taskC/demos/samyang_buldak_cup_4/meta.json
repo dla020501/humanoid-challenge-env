@@ -1,0 +1,24 @@
+{
+ "slug": "samyang_buldak_cup",
+ "seed": 3338018000,
+ "grade": "CLEAN",
+ "n_ok": 0,
+ "product_name": "삼양 불닭볶음면 컵",
+ "instruction": "계산대 위의 삼양 불닭볶음면 컵을 집어 스캐너로 바코드를 인식시킨 뒤 제자리에 다시 놓아라",
+ "subtasks": {
+  "1": "삼양 불닭볶음면 컵을 잡아라",
+  "2": "잡은 삼양 불닭볶음면 컵의 바코드를 스캐너로 인식시켜라",
+  "3": "삼양 불닭볶음면 컵을 다시 제자리에 가져다 놓아라"
+ },
+ "sample_index": 4,
+ "source_seed": 3338018000,
+ "record_hz": 30,
+ "n_frames": 2703,
+ "seconds": 90.1,
+ "cams": [
+  "cam_head",
+  "cam_wrist_left",
+  "cam_wrist_right"
+ ],
+ "note": "학습 데이터와 같은 단일 상품 판. 이미지 프레임은 저장소에 없고 첫 프레임 3장만 있다."
+}

@@ -1,0 +1,239 @@
+{
+ "seed": 3015066000,
+ "frame_in_original": 33,
+ "note": "GT 초기 상태 = 초기 정착/홈 이동이 끝난 첫 접근(s0_approach) 시작 시점. 영상·npy 도 이 프레임부터.",
+ "joint_names": [
+  "arm_l_joint1",
+  "arm_l_joint2",
+  "arm_l_joint3",
+  "arm_l_joint4",
+  "arm_l_joint5",
+  "arm_l_joint6",
+  "arm_l_joint7",
+  "gripper_l_joint1",
+  "arm_r_joint1",
+  "arm_r_joint2",
+  "arm_r_joint3",
+  "arm_r_joint4",
+  "arm_r_joint5",
+  "arm_r_joint6",
+  "arm_r_joint7",
+  "gripper_r_joint1",
+  "head_joint1",
+  "head_joint2",
+  "lift_joint",
+  "reserved0",
+  "reserved1",
+  "reserved2"
+ ],
+ "robot_joint_pose": {
+  "arm_l_joint1": 1.19912,
+  "arm_l_joint2": 0.45026,
+  "arm_l_joint3": 0.06326,
+  "arm_l_joint4": -2.58643,
+  "arm_l_joint5": 0.00224,
+  "arm_l_joint6": 0.00164,
+  "arm_l_joint7": -0.00199,
+  "gripper_l_joint1": -0.0,
+  "arm_r_joint1": 2.25101,
+  "arm_r_joint2": -1.832,
+  "arm_r_joint3": -1.17518,
+  "arm_r_joint4": -1.88525,
+  "arm_r_joint5": -0.85717,
+  "arm_r_joint6": -0.88667,
+  "arm_r_joint7": 0.15829,
+  "gripper_r_joint1": 0.89999,
+  "head_joint1": 0.6951,
+  "head_joint2": -0.0,
+  "lift_joint": 0.0,
+  "reserved0": 0.0,
+  "reserved1": 0.0,
+  "reserved2": 0.0
+ },
+ "robot_joint_pose_at_spawn": {
+  "arm_l_joint1": 1.2018,
+  "arm_l_joint2": 0.45062,
+  "arm_l_joint3": 0.06399,
+  "arm_l_joint4": -2.58774,
+  "arm_l_joint5": 0.0002,
+  "arm_l_joint6": -0.00015,
+  "arm_l_joint7": 0.0003,
+  "gripper_l_joint1": 1e-05,
+  "arm_r_joint1": 2.02532,
+  "arm_r_joint2": -1.89625,
+  "arm_r_joint3": -0.98158,
+  "arm_r_joint4": -1.82955,
+  "arm_r_joint5": -0.91238,
+  "arm_r_joint6": -0.94888,
+  "arm_r_joint7": 0.1515,
+  "gripper_r_joint1": 0.89902,
+  "head_joint1": 0.69483,
+  "head_joint2": 1e-05,
+  "lift_joint": -0.00144,
+  "reserved0": 0.0,
+  "reserved1": 0.0,
+  "reserved2": 0.0
+ },
+ "band_xyxy": [
+  0.1101,
+  0.4999,
+  -0.01,
+  0.57
+ ],
+ "products": [
+  {
+   "slot": 0,
+   "slug": "ottogi_cupnoodle_buldak",
+   "pos": [
+    0.4069610834121704,
+    0.12352157384157181,
+    0.9543270468711853
+   ],
+   "quat_wxyz": [
+    0.0027102557942271233,
+    0.4733288884162903,
+    -0.8808815479278564,
+    0.0002901865227613598
+   ],
+   "upright": true,
+   "inside": false
+  },
+  {
+   "slot": 1,
+   "slug": "yegam_original",
+   "pos": [
+    0.449737548828125,
+    0.38560807704925537,
+    0.9309341311454773
+   ],
+   "quat_wxyz": [
+    0.9999265074729919,
+    -0.0019596482161432505,
+    0.011965733021497726,
+    -3.036913949472364e-05
+   ],
+   "upright": true,
+   "inside": true
+  },
+  {
+   "slot": 2,
+   "slug": "samyang_buldak_cup",
+   "pos": [
+    0.19601976871490479,
+    0.09252514690160751,
+    0.9584417343139648
+   ],
+   "quat_wxyz": [
+    0.006543900351971388,
+    0.9190646409988403,
+    -0.3939512372016907,
+    -0.008932582102715969
+   ],
+   "upright": true,
+   "inside": false
+  }
+ ],
+ "chain_order": [
+  "s0",
+  "s1",
+  "s2"
+ ],
+ "phases_from_init": [
+  {
+   "name": "s0_approach",
+   "start_frame": 0
+  },
+  {
+   "name": "s0_grasp",
+   "start_frame": 103
+  },
+  {
+   "name": "s0_lift",
+   "start_frame": 237
+  },
+  {
+   "name": "s0_sweep_00",
+   "start_frame": 330
+  },
+  {
+   "name": "s0_sweep_01",
+   "start_frame": 755
+  },
+  {
+   "name": "s0_ret_down",
+   "start_frame": 1019
+  },
+  {
+   "name": "s0_ret_retreat",
+   "start_frame": 1339
+  },
+  {
+   "name": "s0_gt_home",
+   "start_frame": 1664
+  },
+  {
+   "name": "s1_approach",
+   "start_frame": 2248
+  },
+  {
+   "name": "s1_grasp",
+   "start_frame": 2550
+  },
+  {
+   "name": "s1_lift",
+   "start_frame": 2684
+  },
+  {
+   "name": "s1_sweep_00",
+   "start_frame": 2873
+  },
+  {
+   "name": "s1_sweep_01",
+   "start_frame": 3179
+  },
+  {
+   "name": "s1_ret_down",
+   "start_frame": 3455
+  },
+  {
+   "name": "s1_ret_retreat",
+   "start_frame": 4516
+  },
+  {
+   "name": "s1_gt_home",
+   "start_frame": 5203
+  },
+  {
+   "name": "s2_approach",
+   "start_frame": 6946
+  },
+  {
+   "name": "s2_grasp",
+   "start_frame": 7013
+  },
+  {
+   "name": "s2_lift",
+   "start_frame": 7154
+  },
+  {
+   "name": "s2_sweep_00",
+   "start_frame": 7283
+  },
+  {
+   "name": "s2_sweep_01",
+   "start_frame": 7721
+  },
+  {
+   "name": "s2_ret_down",
+   "start_frame": 7997
+  },
+  {
+   "name": "s2_ret_retreat",
+   "start_frame": 8681
+  },
+  {
+   "name": "s2_gt_home",
+   "start_frame": 8939
+  }
+ ]
+}

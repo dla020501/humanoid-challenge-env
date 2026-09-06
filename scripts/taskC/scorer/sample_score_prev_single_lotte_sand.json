@@ -1,0 +1,215 @@
+{
+ "elapsed_s": 78.533,
+ "stopped": null,
+ "attempt_consumed": false,
+ "attempt_reason": null,
+ "config": {
+  "grip_load_min_nm": 5.0,
+  "grip_stall_margin_rad": 0.02,
+  "held_clear_m": 0.005,
+  "grip_hold_s": 0.3,
+  "lift_clear_m": 0.02,
+  "aim_dist_m": 0.15,
+  "aim_hold_s": 1.0,
+  "aim_coverage_min": 0.1,
+  "decode_dist_m": 0.15,
+  "fall_clear_m": 0.02,
+  "time_limit_s": 1200.0
+ },
+ "measured": {
+  "table_z": 0.9031386161744595,
+  "band_rect": [
+   0.1101,
+   0.4999,
+   -0.01,
+   0.57
+  ],
+  "q_free_close": null
+ },
+ "warnings": [
+  "q_free_close 미측정 -- Sub 1-1 을 모터 부하만으로 판정했다. 빈손으로 한계까지 닫아도 부하가 붙는 기구라면 헛집기가 통과할 수 있다.",
+  "화면 점유율은 OBB 투영 넓이 비율이다 -- 가려짐·곡면을 반영하지 않는 **상한**이고, 이 스캐너캠(화각 약 37도)에서는 제시 거리에서 100% 로 포화해 사실상 변별하지 않는다."
+ ],
+ "products": [
+  {
+   "slug": "lotte_sand",
+   "items": {
+    "sub1_1_grip": {
+     "pass": true,
+     "pts": 2.0,
+     "t": 16.1
+    },
+    "sub1_2_lift": {
+     "pass": true,
+     "pts": 2.0,
+     "t": 20.633333333333333
+    },
+    "sub2_1_aim": {
+     "pass": true,
+     "pts": 3.0,
+     "t": 35.2
+    },
+    "sub2_2_decode": {
+     "pass": true,
+     "pts": 7.0,
+     "t": 32.43333333333333
+    },
+    "sub3_place": {
+     "pass": true,
+     "pts": 3.0,
+     "t": 71.23333333333333
+    }
+   },
+   "points": 17.0,
+   "max": 17.0,
+   "fallen": false,
+   "why": {
+    "sub1_1_grip": "모터 부하가 5.0N·m 이상으로 0.3초 연속 유지됐다 (최대 30.0N·m)",
+    "sub1_2_lift": "상판보다 최대 291mm 높이 올렸다",
+    "sub2_1_aim": "빔까지 최소 0.078m, 화면 점유 최대 100.0% 로 1초 연속 유지했다",
+    "sub2_2_decode": "빔에서 0.078m 안에서 기대 코드를 읽었다",
+    "sub3_place": "t=71.23 에 내려놨고 AABB 가 띠와 겹쳤다"
+   },
+   "evidence": {
+    "max_load_nm": 30.0,
+    "max_grip_run_s": 0.3333333333333339,
+    "max_lift_m": 0.2909514307975769,
+    "min_dist_m": 0.07831539045500424,
+    "frames_near": 408,
+    "frames_grasped": 1667,
+    "max_coverage": 1.0,
+    "frames_held": 1404,
+    "released": true,
+    "release_t": 71.23,
+    "release_in_band": true,
+    "release_pos": [
+     0.2843,
+     0.1055,
+     0.9271
+    ]
+   },
+   "notes": [
+    "t=71.23 내려놓음 -- 띠 교차 O"
+   ]
+  },
+  {
+   "slug": "yegam_original",
+   "items": {
+    "sub1_1_grip": {
+     "pass": true,
+     "pts": 2.0,
+     "t": 16.1
+    },
+    "sub1_2_lift": {
+     "pass": false,
+     "pts": 0.0,
+     "t": null
+    },
+    "sub2_1_aim": {
+     "pass": "UNAVAILABLE",
+     "pts": 0.0,
+     "t": null
+    },
+    "sub2_2_decode": {
+     "pass": false,
+     "pts": 0.0,
+     "t": null
+    },
+    "sub3_place": {
+     "pass": "UNAVAILABLE",
+     "pts": 0.0,
+     "t": null
+    }
+   },
+   "points": 2.0,
+   "max": 17.0,
+   "fallen": false,
+   "why": {
+    "sub1_1_grip": "모터 부하가 5.0N·m 이상으로 0.3초 연속 유지됐다 (최대 30.0N·m)",
+    "sub1_2_lift": "쥔 적이 없어 들어올릴 기회가 없었다",
+    "sub2_1_aim": "화면 점유율(프레임의 10% 이상)이 배선되지 않아 재지 못했다",
+    "sub2_2_decode": "들어올린 적이 없어 제시 자체가 없었다",
+    "sub3_place": "내려놓은 적이 없다 — 판정할 순간이 없었다"
+   },
+   "evidence": {
+    "max_load_nm": 30.0,
+    "max_grip_run_s": 0.3333333333333339,
+    "max_lift_m": null,
+    "min_dist_m": null,
+    "frames_near": 0,
+    "frames_grasped": 0,
+    "max_coverage": null,
+    "frames_held": 0,
+    "released": false,
+    "release_t": null,
+    "release_in_band": null,
+    "release_pos": null
+   },
+   "notes": []
+  },
+  {
+   "slug": "cocacola_zero",
+   "items": {
+    "sub1_1_grip": {
+     "pass": true,
+     "pts": 2.0,
+     "t": 16.1
+    },
+    "sub1_2_lift": {
+     "pass": false,
+     "pts": 0.0,
+     "t": null
+    },
+    "sub2_1_aim": {
+     "pass": "UNAVAILABLE",
+     "pts": 0.0,
+     "t": null
+    },
+    "sub2_2_decode": {
+     "pass": false,
+     "pts": 0.0,
+     "t": null
+    },
+    "sub3_place": {
+     "pass": "UNAVAILABLE",
+     "pts": 0.0,
+     "t": null
+    }
+   },
+   "points": 2.0,
+   "max": 17.0,
+   "fallen": false,
+   "why": {
+    "sub1_1_grip": "모터 부하가 5.0N·m 이상으로 0.3초 연속 유지됐다 (최대 30.0N·m)",
+    "sub1_2_lift": "쥔 적이 없어 들어올릴 기회가 없었다",
+    "sub2_1_aim": "화면 점유율(프레임의 10% 이상)이 배선되지 않아 재지 못했다",
+    "sub2_2_decode": "들어올린 적이 없어 제시 자체가 없었다",
+    "sub3_place": "내려놓은 적이 없다 — 판정할 순간이 없었다"
+   },
+   "evidence": {
+    "max_load_nm": 30.0,
+    "max_grip_run_s": 0.3333333333333339,
+    "max_lift_m": null,
+    "min_dist_m": null,
+    "frames_near": 0,
+    "frames_grasped": 0,
+    "max_coverage": null,
+    "frames_held": 0,
+    "released": false,
+    "release_t": null,
+    "release_in_band": null,
+    "release_pos": null
+   },
+   "notes": []
+  }
+ ],
+ "total": 21.0,
+ "max": 51.0,
+ "source": {
+  "trace": "/workspace/cyclo_lab/out/gt_trace_1153016.jsonl",
+  "frames": 2357,
+  "target": "lotte_sand",
+  "replay_grade": "CLEAN",
+  "replay_decode_ok": true
+ }
+}

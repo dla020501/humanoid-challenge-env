@@ -1,0 +1,39 @@
+{
+ "phases": [
+  {
+   "name": "",
+   "start_frame": 0
+  },
+  {
+   "name": "approach",
+   "start_frame": 18
+  },
+  {
+   "name": "grasp",
+   "start_frame": 235
+  },
+  {
+   "name": "lift",
+   "start_frame": 352
+  },
+  {
+   "name": "sweep_00",
+   "start_frame": 562
+  },
+  {
+   "name": "sweep_01",
+   "start_frame": 1452
+  },
+  {
+   "name": "ret_down",
+   "start_frame": 1716
+  },
+  {
+   "name": "ret_retreat",
+   "start_frame": 2288
+  }
+ ],
+ "n_frames": 2849,
+ "trim_head": 15,
+ "trim_head_s": 0.5
+}

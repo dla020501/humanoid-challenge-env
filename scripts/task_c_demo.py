@@ -26,7 +26,7 @@
   * **상품**    계산대 상판의 빨간 띠 안에 상품 세 개. 슬롯 0 이 집을 상품이고 나머지 둘은
     배경이다. 세 개 모두 QR 면이 로봇의 정 오른쪽(세계 -Y)을 보도록 놓인다. 원통은 서 있고
     (반은 뒤집어 세운다), 상자는 눕는다. 상품끼리는 10 cm 이상 떨어진다.
-  * **스캐너**  로봇 왼손이 드는 자리에 떠 있다(중력 없음). 수집 파이프라인이 에피소드를
+  * **스캐너**  로봇 오른손이 드는 자리에 떠 있다(중력 없음). 수집 파이프라인이 에피소드를
     시작하던 그 자세다.
   * **로봇**    계산대를 마주 보고 선다. 양팔은 스토우 자세, 고개는 39.8 도 숙임. 바퀴는
     바닥에 닿아 있다(아래 settle_on_ground).
@@ -265,7 +265,7 @@ class World(InteractiveSceneCfg):
     right_wrist_cam = _cam("right_wrist_cam")
 
     def __post_init__(self):
-        # 스캐너: 왼손이 드는 자리에 떠 있다(중력 없음). 수집 재생기와 같은 스폰이다.
+        # 스캐너: 오른손이 드는 자리에 떠 있다(중력 없음). 수집 재생기와 같은 스폰이다.
         spos = L.robot_to_world(L.SCANNER_HOLD_POS)
         self.scanner = RigidObjectCfg(
             prim_path="{ENV_REGEX_NS}/Scanner",
@@ -451,7 +451,7 @@ def main():
               f"{'상판 위' if not r['sunk'] else '!! 뚫림'}  "
               f"{'띠 안' if r['inside'] else '!! 띠 밖/간격/방위'}", flush=True)
     sp = scene["scanner"].data.root_pos_w[0]
-    print(f"[i] 스캐너  ({float(sp[0]):+.4f}, {float(sp[1]):+.4f}, {float(sp[2]):.4f}) -- 왼손이 드는 자리", flush=True)
+    print(f"[i] 스캐너  ({float(sp[0]):+.4f}, {float(sp[1]):+.4f}, {float(sp[2]):.4f}) -- 오른손이 드는 자리", flush=True)
     print("[i] 장면이 섰다. 여기서 과제 C 가 시작한다.\n", flush=True)
 
     if args_cli.shot:

@@ -1,0 +1,65 @@
+{
+ "seed": 1,
+ "source_seed": 3050039000,
+ "slug": "samyang_buldak_cup",
+ "chain_order": [
+  "samyang_buldak_cup",
+  "ottogi_cupnoodle_buldak",
+  "yegam_original"
+ ],
+ "n_products": 3,
+ "grade": "CLEAN",
+ "n_ok_per_slot": [
+  1,
+  1,
+  2
+ ],
+ "products": [
+  {
+   "slot": 0,
+   "slug": "samyang_buldak_cup",
+   "product_name": "삼양 불닭볶음면 컵",
+   "code": "8807531162229",
+   "price": 1300
+  },
+  {
+   "slot": 1,
+   "slug": "ottogi_cupnoodle_buldak",
+   "product_name": "컵누들 불닭맛 저당",
+   "code": "8803541964419",
+   "price": 1300
+  },
+  {
+   "slot": 2,
+   "slug": "yegam_original",
+   "product_name": "예감 오리지널",
+   "code": "8804302523241",
+   "price": 2300
+  }
+ ],
+ "instruction": "계산대 위의 상품 3개(삼양 불닭볶음면 컵, 컵누들 불닭맛 저당, 예감 오리지널)를 하나씩 집어 스캐너로 바코드를 인식시킨 뒤 제자리에 다시 놓아라",
+ "subtasks": {
+  "슬롯0": {
+   "1": "삼양 불닭볶음면 컵을(를) 잡아라",
+   "2": "잡은 삼양 불닭볶음면 컵의 바코드를 스캐너로 인식시켜라",
+   "3": "삼양 불닭볶음면 컵을(를) 다시 제자리에 가져다 놓아라"
+  },
+  "슬롯1": {
+   "1": "컵누들 불닭맛 저당을(를) 잡아라",
+   "2": "잡은 컵누들 불닭맛 저당의 바코드를 스캐너로 인식시켜라",
+   "3": "컵누들 불닭맛 저당을(를) 다시 제자리에 가져다 놓아라"
+  },
+  "슬롯2": {
+   "1": "예감 오리지널을(를) 잡아라",
+   "2": "잡은 예감 오리지널의 바코드를 스캐너로 인식시켜라",
+   "3": "예감 오리지널을(를) 다시 제자리에 가져다 놓아라"
+  }
+ },
+ "record_hz": 30,
+ "cams": [
+  "cam_head",
+  "cam_wrist_left",
+  "cam_wrist_right"
+ ],
+ "frame0": "s0_approach 시작(원본 33 프레임 잘라냄)"
+}
