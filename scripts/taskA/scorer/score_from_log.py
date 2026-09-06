@@ -1,0 +1,485 @@
+# Copyright 2025.
+#
+# 판정 로그 -> 측정값 -> 채점표.  **Isaac 이 필요 없다.**
+#
+# WHY MEASURING AND SCORING ARE SEPARATE FILES
+#   여기는 재기만 하고 점수는 `rubric_taskA.py` 가 매긴다.  나누는 이유는 이의 제기다 --
+#   문턱을 바꿔 다시 채점하고 싶을 때 로그를 다시 만들 필요가 없어야 하고, 채점기 단위 시험이
+#   시뮬레이터 없이 몇 초에 돌아야 한다.  `Task-A/scoring/{probe_pick,rubric_pick}.py` 가
+#   같은 이유로 나뉘어 있다.
+#
+# WHY IT TAKES SEVERAL LOGS AT ONCE
+#   **사용자 결정(2026-09-01): 집기·주행·놓기를 이어진 한 편이 아니라 세 조각으로 준다.**
+#   그러면 한 조각이 8 항목을 다 답할 수 없다 -- 주행 로그의 첫 프레임에서 바구니는 이미 들려
+#   있으므로 "탁자에서 띄웠는가" 를 물을 수 없다.  조각마다 답할 수 있는 것만 답하고 나머지는
+#   `None` 으로 두면, 세 값 규칙에 따라 그 항목이 **분모에서 빠진다**.  세 조각을 같이 주면
+#   빈칸이 서로 채워져 30 점 만점이 된다.
+#
+#   [판 내내] 인 두 항목(가구 충돌·책상 밀림)은 **세 조각 전체에서 가장 나쁜 값**을 쓴다.
+#
+# Run:
+#   python3 Task-A/eval_kit/score_from_log.py --log gt_1_pick.npz gt_1_carry.npz gt_1_place.npz \
+#       --scene Task-A/datasets/eval_kit/scenes/scene_1.json --out expected/score_1.json
+
+import argparse
+import json
+import math
+import sys
+from pathlib import Path
+
+import numpy as np
+
+_HERE = Path(__file__).resolve().parent
+_TASKA = _HERE.parent
+sys.path.insert(0, str(_HERE))
+sys.path.insert(0, str(_TASKA / "scoring"))
+
+# **옆 폴더도 본다.**  저장소에서는 이 파일과 `scene_spec.py` 가 같은 폴더(`eval_kit/`)에
+# 있지만, 전달 폴더에서는 채점기가 `score/`, 장면 스키마가 `scene/` 으로 갈라져 있다.
+# 경로를 하나만 박아 두면 폴더를 옮기는 순간 `ModuleNotFoundError` 로 죽는다 -- 그리고
+# 그것은 꾸러미를 받은 사람이 처음 돌려 보는 순간에 난다.
+for _sib in ("scene", "scoring", "sim"):
+    _d = _HERE.parent / _sib
+    if _d.is_dir():
+        sys.path.append(str(_d))
+
+import grasp_geom as GG       # noqa: E402  (순수 numpy -- 크레이트 축과 기울기의 정의가 여기 있다)
+import rubric_taskA as R      # noqa: E402
+import grip_geom as GRIP
+import scene_spec as SS
+
+# 바구니 치수.  `sim/task_layout.BASKET_SIZE` 와 같은 값이고, 채점기는 Isaac 없이
+# 돌아야 하므로 그 모듈을 import 하지 않고 `grasp_geom` 의 상수에서 가져온다.
+TL_BASKET_SIZE = (GG.CRATE_ALONG, GG.CRATE_ACROSS, GG.CRATE_HEIGHT)       # noqa: E402
+
+
+def load(path):
+    z = np.load(path, allow_pickle=False)
+    head = json.loads(str(z["header"]))
+    return head, {k: z[k] for k in z.files if k != "header"}
+
+
+def _speed(pos, t):
+    """자리가 얼마나 빨리 변하는가 (mm/s).  **기록된 속도(`*_vel`)를 쓰지 않는다.**
+
+    WHY NOT THE RECORDED VELOCITY (2026-09-02 실측, seed 0 의 GT 세 조각)
+      바닥에 서 있는 로봇의 보고된 수직 속도가 **계속 +39 mm/s 로 떠 있다.**  세 조각에서
+      각각 +38.99 / +39.21 / +38.99 mm/s (중앙값) 이고, 같은 프레임에서 **위치 차분은
+      +0.00 mm/s** 다.  마지막 100 프레임(10초) 동안 로봇이 실제로 움직인 거리는 0.2 mm 인데
+      보고된 속도는 39 mm/s 를 유지한다.  바구니도 로봇이 들고 있는 동안 같은 모양이고
+      (+33.9 / +54.0), 책상에 내려놓은 뒤에는 -0.07 로 사라진다 -- **바닥(compliant)에
+      얹힌 것에 붙는 값**으로 보인다.
+
+      그대로 읽으면 문턱이 10 mm/s 이므로 **"멈췄다" 가 영원히 거짓이 된다.**  실제로
+      seed 0 의 정답 주행이 A-2-1 에서 0 점을 받았고, 로그를 보니 3,102 프레임 전부
+      39 mm/s 였다.  우리 편만의 문제가 아니라 **어느 팀의 제출물이든 같은 답을 받는다.**
+
+      문턱은 그대로 10 mm/s 다.  바꾼 것은 **재는 방법**뿐이고, 자리가 변했는가가 곧
+      "멈췄다" 의 뜻이므로 위치 차분이 그 문장에 더 가깝다.  기록된 속도는 npz 에 그대로
+      남아 있으므로 다르게 판단하실 수 있다.
+
+      두 구간의 **큰 쪽**을 그 프레임의 속도로 본다 -- 한쪽만 0 이어도 멈춘 것으로 치면
+      판정이 관대해진다.
+    """
+    tt = np.asarray(t, dtype=np.float64)
+    dt = np.diff(tt)
+    good = dt > 0
+    dt = np.where(good, dt, (np.median(dt[good]) if good.any() else 1.0))
+    v = np.linalg.norm(np.diff(np.asarray(pos)[:, :3], axis=0), axis=1) / dt * 1000.0
+    if len(v) == 0:
+        return np.zeros(len(tt))
+    out = np.empty(len(tt), dtype=np.float64)
+    out[0], out[-1] = v[0], v[-1]
+    if len(tt) > 2:
+        out[1:-1] = np.maximum(v[:-1], v[1:])
+    return out
+
+
+def _reported_speed(vel6):
+    """기록된 선속도 크기 (mm/s).  **채점에 안 쓴다** -- 위 참조.  출력에 같이 남겨
+    두 방법이 얼마나 다른지 보이기 위한 것이다."""
+    return np.linalg.norm(vel6[:, :3], axis=1) * 1000.0
+
+
+def _yaw(q):
+    return np.arctan2(2.0 * (q[:, 0] * q[:, 3] + q[:, 1] * q[:, 2]),
+                      1.0 - 2.0 * (q[:, 2] ** 2 + q[:, 3] ** 2))
+
+
+def _corners(pos, quat):
+    """바구니 밑면 네 모서리의 월드 xy.  축의 정의는 `grasp_geom.crate_axes` 것을 쓴다 --
+    여기서 다시 정하면 두 곳이 갈라진다."""
+    out = np.zeros((len(pos), 4, 2), dtype=np.float64)
+    for i in range(len(pos)):
+        along, across, _ = GG.crate_axes(quat[i])
+        for j, (sa, sc) in enumerate(((1, 1), (1, -1), (-1, -1), (-1, 1))):
+            p = (pos[i, :2] + along[:2] * (sa * GG.CRATE_ALONG / 2.0)
+                 + across[:2] * (sc * GG.CRATE_ACROSS / 2.0))
+            out[i, j] = p
+    return out
+
+
+def _overhang_mm(corners, desk_xy, desk_size):
+    """상판 밖으로 나간 최대 거리 (mm).  안에 다 들어가면 0."""
+    hx, hy = desk_size[0] / 2.0, desk_size[1] / 2.0
+    dx = np.abs(corners[:, :, 0] - desk_xy[:, None, 0]) - hx
+    dy = np.abs(corners[:, :, 1] - desk_xy[:, None, 1]) - hy
+    out = np.sqrt(np.maximum(dx, 0.0) ** 2 + np.maximum(dy, 0.0) ** 2)
+    return out.max(axis=1) * 1000.0
+
+
+def measure_one(head, a, scene, th):
+    """조각 하나에서 답할 수 있는 것만 답한다.  못 답하는 것은 열쇠를 아예 안 넣는다."""
+    seg = head.get("segment", "?")
+    out = {"segment": seg, "frames": int(len(a["t"])), "notes": [],
+           "elapsed_s": float(a["t"][-1] - a["t"][0]) if len(a["t"]) else 0.0}
+
+    # ── 무엇이 바구니를 받치고 있나 ─────────────────────────────────────────────────────
+    #
+    # 새 평가표(2026-09-02)는 두 물음을 **다른 범위**로 묻는다.
+    #
+    #   Sub 1# 집기   「**그리퍼**가 물고 있었나」   -> grip_max
+    #   Sub 2# 이동   「**로봇**이 들고 있었나」     -> robot_touch   (바퀴 베이스에 얹어도 통과)
+    #
+    # 그래서 둘을 따로 읽는다.  `crate_robot_force` / `crate_nonrobot_force` 는 이 시트를 위해
+    # 2026-09-02 에 로그에 들어간 열이다.  **옛 로그에는 없다** -- 그때는 그리퍼로 대신 읽고
+    # 그 사실을 메모에 남긴다.  조용히 대신 읽으면 "베이스에 얹어 나른 판"이 0점으로 찍히고
+    # 이유가 로그 어디에도 안 남는다.
+    grip_max = a["grip_force"].max(axis=1)
+    other = a["crate_other_force"]
+
+    # ── 물리를 안 돌린 로그는 접촉을 **기하로** 읽는다 ──────────────────────────────────
+    #
+    # `gt_replay.py --kinematic` 이 만든 로그에는 접촉력이 전부 0 이다 -- 물리를 한 스텝도
+    # 안 돌렸기 때문이다.  대신 손가락 자리와 벌림으로 판정한다.  물리로 잰 것과 7,041
+    # 프레임에서 **99.9% 일치**하는 것이 확인돼 있다 (`grip_geom.py` 머리말: 집기 99.5 /
+    # 주행 100.0 / 놓기 99.9, 오탐 5 · 미탐 4).
+    #
+    # 왜 물리를 버렸나: 재생이 긴 주행에서 재현되지 않았다.  스워브가 잠겼다 풀리며 베이스가
+    # 명령 상한의 3 배로 튀고 그때 바구니가 손에서 뜯긴다.  쥐는 힘 네 값·속도 상한 두 값·
+    # 베이스 방식 두 가지를 다 돌려도 안 풀렸다 (2026-09-02).
+    if head.get("kinematic"):
+        _held, _per_hand, _near_mm, _gap_mm = GRIP.held(
+            a["grip_pos"], a["crate_pos"], a["crate_quat"], TL_BASKET_SIZE)
+        on_robot = on_grip = _held
+        free = np.ones(len(_held), bool)
+        # 「로봇이 아닌 것이 받치나」는 힘으로만 나오는 값이라 기하로는 직접 못 잰다.
+        # **대신 결과로 읽는다**: 로봇이 안 쥐고 있는데 바구니가 멈춰 있으면 무언가가 받치는
+        # 것이다.  공중에 있는 바구니는 계속 떨어지므로 안 멈춘다.  이 대용값은 낙하 판정에만
+        # 쓰이고(`dropped`), 쥐고 있는 동안의 판정에는 관여하지 않는다.
+        _cspd = _speed(a["crate_pos"], a["t"])
+        robot_touch = np.where(_held, 1.0, 0.0)
+        nonrobot = np.where((~_held) & (_cspd < th["STOP_MM_S"]), 1.0, 0.0)
+        out["geom_grip"] = {
+            "near_mm": float(GRIP.NEAR_MM), "gap_mm": float(GRIP.GAP_MM),
+            "held_frames": int(_held.sum()), "frames": int(len(_held)),
+            # 어느 손이 얼마나 잡고 있었는지 -- 이의가 오면 이 숫자로 답한다
+            "left_frames": int(_per_hand[:, 0].sum()), "right_frames": int(_per_hand[:, 1].sum()),
+            "near_min_mm": [float(_near_mm[:, 0].min()), float(_near_mm[:, 1].min())],
+            "gap_min_mm": [float(_gap_mm[:, 0].min()), float(_gap_mm[:, 1].min())],
+        }
+        out["contact_source"] = "기하 (grip_geom, 물리와 99.9% 일치)"
+        out["notes"].append(
+            "물리를 안 돌린 로그다 — 접촉을 손가락 자리와 벌림으로 판정했다 "
+            f"(문턱 {GRIP.NEAR_MM:.0f} mm / {GRIP.GAP_MM:.0f} mm)")
+    elif "crate_robot_force" in a and "crate_nonrobot_force" in a:
+        robot_touch = a["crate_robot_force"]
+        nonrobot = a["crate_nonrobot_force"]
+        on_robot = robot_touch > th["CONTACT_N"]
+        on_grip = grip_max > th["CONTACT_N"]
+        free = nonrobot <= th["CONTACT_N"]
+    else:
+        robot_touch = grip_max
+        nonrobot = other
+        on_robot = robot_touch > th["CONTACT_N"]
+        on_grip = grip_max > th["CONTACT_N"]
+        free = nonrobot <= th["CONTACT_N"]
+        out["notes"].append(
+            "이 로그에는 로봇 전체 접촉(crate_robot_force)이 없어 **그리퍼로 대신 읽었다** — "
+            "베이스나 팔에 얹어 나른 판이라면 「들고 있었는가」가 틀리게 나온다")
+    held = on_robot & free                             # Sub 2# 의 「들고 있다」
+    gripped = on_grip & free                           # Sub 1# 의 「물고 있다」
+
+    # ── [판 내내] 두 항목은 어느 조각에서나 잰다 ────────────────────────────────────────
+    hit = head.get("hit") or {}
+    out["furniture"] = {"hit": bool(hit.get("hit", bool(a["hit_now"].max() > 0.5))),
+                        "worst_mm": float(a["hit_depth_mm"].max()),
+                        "what": hit.get("fixture"), "part": hit.get("part"),
+                        "frames": int(a["hit_now"].sum())}
+    d0 = a["desk_pos"][0, :2]
+    out["desk"] = {"worst_mm": float(np.max(
+        np.linalg.norm(a["desk_pos"][:, :2] - d0[None, :], axis=1)) * 1000.0)}
+
+    # ── 책상 상판 높이는 매 프레임 따라간다 ─────────────────────────────────────────────
+    # **상수로 쓰지 않는다** -- 책상은 밀리기만 하는 것이 아니라 들리는 일도 있다
+    # (CLAUDE.md 57 절).  씬 파일이 잰 상판 높이에, 그 뒤 책상이 움직인 z 를 더한다.
+    top0 = scene["desk"]["top_z"]
+    top = top0 + (a["desk_pos"][:, 2] - scene["desk"]["pos"][2])
+    seat_mm = (a["crate_pos"][:, 2] - top) * 1000.0
+    corners = _corners(a["crate_pos"], a["crate_quat"])
+    over_mm = _overhang_mm(corners, a["desk_pos"][:, :2], scene["desk"]["size"])
+    on_top = (seat_mm >= 0.0) & (seat_mm <= th["SEAT_ON_MAX_MM"]) & (over_mm <= 500.0)
+    c_speed = _speed(a["crate_pos"], a["t"])
+    c_speed_reported = _reported_speed(a["crate_vel"])
+
+    # ── 판이 끝나는 자리 ────────────────────────────────────────────────────────────────
+    #
+    # **사용자 결정 2026-09-01: 부딪히면 아예 평가 중지.**  낙하와 같은 구조다 -- 그 프레임에서
+    # 끝내고 그때까지 얻은 점수만 남긴다.  자르지 않으면 부딪힌 뒤에 우연히 목표 근처를
+    # 지나간 것이 "도착" 으로 잡힌다.
+    #
+    # 실측이 그 필요를 보여준다: 일부러 부딪히게 만든 편은 96초에 부딪힌 뒤 283초를 더
+    # 굴렀고, 그 사이 목표까지 1.59 m 를 더 좁혔다.  자르지 않으면 그 1.59 m 가 점수가 된다.
+
+    # ── 낙하 -- 놓기와 **같은 측정이고 자리로만 갈린다** ────────────────────────────────
+    #
+    # **한 번도 쥔 적이 없으면 떨어뜨릴 수도 없다.**  이 한 줄이 없으면 집기 조각의 첫
+    # 프레임이 낙하로 찍힌다 -- 그때 바구니는 탁상 위에 그냥 놓여 있고, 그것은
+    # "그리퍼와 안 닿음 + 다른 것이 받침 + 멈춤 + 책상 아님" 을 모두 만족한다.
+    # 2026-09-01 실측: 집기 로그가 "0.0초에 낙하" 로 찍혔고, 조각을 합치면 그 한 줄이
+    # Sub A-3 의 10 점을 통째로 날린다.
+    # 시트의 정의는 둘뿐이다 -- ① 로봇 어느 부위와도 안 닿음 ② 로봇 아닌 것과 닿음.
+    # **거기에 ③ 책상 상판 위가 아닐 것을 보탠다** (사용자 승인 2026-09-02).  안 보태면
+    # 책상에 잘 내려놓는 순간이 정확히 ①②를 만족해 성공한 놓기가 낙하로 찍히고, Sub 3# 를
+    # 아무도 못 받는다.  낙하와 놓기는 같은 측정이고 **자리로만 갈린다.**
+    #
+    # 옛 판에 있던 「멈췄고」 조건은 뺐다 -- 시트에 없고, ②가 이미 "무언가에 닿았다" 를
+    # 요구하므로 공중에 뜬 순간은 어차피 안 잡힌다.
+    #
+    # **한 번도 로봇에 닿은 적이 없으면 떨어뜨릴 수도 없다.**  이 한 줄이 없으면 집기 조각의
+    # 첫 프레임이 낙하로 찍힌다 -- 그때 바구니는 탁상 위에 그냥 놓여 있고, 그것은 ①②를
+    # 만족한다.  2026-09-01 실측: 집기 로그가 "0.0초에 낙하" 로 찍혔다.
+    ever_held = np.maximum.accumulate(on_robot.astype(np.int8)) > 0
+    dropped = (ever_held & ~on_robot & (nonrobot > th["CONTACT_N"]) & (~on_top))
+    hit_now = a["hit_now"] > 0.5
+    stop_i, stop_why = None, None
+    if dropped.any():
+        stop_i, stop_why = int(np.argmax(dropped)), "dropped"
+    if hit_now.any():
+        j = int(np.argmax(hit_now))
+        if stop_i is None or j < stop_i:
+            stop_i, stop_why = j, "hit"
+    if stop_i is not None:
+        out["stopped_at_s"] = float(a["t"][stop_i])
+        out["stopped_why"] = stop_why
+        out["notes"].append(
+            f"{a['t'][stop_i]:.1f}초에 "
+            + ("바구니가 그리퍼를 벗어나 상판 밖에서 멈췄다 — 판 종료" if stop_why == "dropped"
+               else f"{out['furniture'].get('what') or '매장 가구'} 에 부딪혔다 — 판 종료")
+            + f" (기록은 {a['t'][-1]:.1f}초까지 있으나 여기서 자른다)")
+        # **여기서 자른다.**  뒤 항목들은 잘린 구간만 본다.
+        sl = slice(0, stop_i + 1)
+        for _k in ("t", "crate_pos", "crate_quat", "crate_vel", "base_pos", "base_quat",
+                   "base_vel", "grip_pos", "grip_force", "crate_net_force",
+                   "crate_other_force", "crate_robot_force", "crate_nonrobot_force",
+                   "desk_pos", "desk_quat", "hit_now", "hit_depth_mm",
+                   "body_force", "body_link"):
+            if _k in a:
+                a = {**a, _k: a[_k][sl]}
+        grip_max, other = grip_max[sl], other[sl]
+        robot_touch, nonrobot = robot_touch[sl], nonrobot[sl]
+        on_robot, on_grip, free = on_robot[sl], on_grip[sl], free[sl]
+        held, gripped, on_top = held[sl], gripped[sl], on_top[sl]
+        seat_mm, over_mm, c_speed = seat_mm[sl], over_mm[sl], c_speed[sl]
+        c_speed_reported = c_speed_reported[sl]
+        corners = corners[sl]
+        out["frames_scored"] = int(stop_i + 1)
+
+    # ── 집기 조각만 답할 수 있는 것 ─────────────────────────────────────────────────────
+    if seg == "pick":
+        z0 = float(a["crate_pos"][0, 2])
+        rise = (a["crate_pos"][:, 2] - z0) * 1000.0
+        cand = rise >= th["LIFT_OK_MM"]
+        out["lift"] = {"peak_mm": float(rise.max())}
+        if cand.any():
+            ok = cand & gripped
+            out["lift"]["gripped"] = bool(ok.any())
+            if not ok.any():
+                i = int(np.argmax(rise))
+                out["lift"]["why_grip"] = (
+                    f"{th['LIFT_OK_MM']:.0f} mm 를 넘은 프레임 {int(cand.sum())}개 가운데 "
+                    f"그리퍼가 물고 있던 프레임이 없다 (가장 높은 순간 그리퍼 "
+                    f"{grip_max[i]:.2f} N, 로봇 아닌 것 {nonrobot[i]:.2f} N)")
+        else:
+            out["lift"]["gripped"] = False
+
+    # ── 주행 조각만 답할 수 있는 것 ─────────────────────────────────────────────────────
+    # **도착은 주행과 놓기 두 조각에서 다 본다.**  평가표는 "[한 번이라도] 목표 지점에
+    # 조금이라도 안에 들어가 멈춰 선 적이 있으면 통과" 라고 판 전체를 묻는데, 우리 데이터는
+    # 조각으로 나뉘어 있어 주행만 보면 판이 잘린다.
+    #
+    # 실측 2026-09-02: 주행 기록은 **로봇이 아직 움직이는 동안 끝난다** (seed 0 의 마지막
+    # 4 초 중앙 속도 85 mm/s, seed 1 은 56).  실제로 멈추는 것은 그 다음 조각인 놓기의
+    # 첫 국면 -- 책상 쪽으로 제자리에서 도는 동안이고, 그때도 목표 구역 안에 있다.
+    if seg in ("carry", "place"):
+        goal = np.asarray(scene["goal"]["xy"], dtype=np.float64)
+        zone = float(scene["goal"].get("tol_m") or th["ARRIVE_ZONE_M"])
+        # **중심 거리가 아니라 발자국 겹침이다** (사용자 결정 2026-09-02).  규칙 자체는
+        # `rubric_taskA.zone_gap_mm` 에 있다 -- 재는 일이 아니라 평가표가 정한 것이므로.
+        yaw = _yaw(a["base_quat"])
+        edge_mm = np.array([R.zone_gap_mm(a["base_pos"][i, :2], yaw[i], goal, zone)
+                            for i in range(len(yaw))], dtype=np.float64)
+        gap = np.linalg.norm(a["base_pos"][:, :2] - goal[None, :], axis=1)
+        b_speed = _speed(a["base_pos"], a["t"])
+        b_speed_reported = _reported_speed(a["base_vel"])
+        stopped = b_speed < th["STOP_MM_S"]
+        out["arrive"] = {"stopped_ever": bool(stopped.any()),
+                         "zone_m": zone,
+                         "nearest_edge_mm": float(edge_mm.min()),
+                         "nearest_centre_m": float(gap.min()),
+                         # 두 방법을 나란히 남긴다 -- 위 `_speed` 머리말의 실측이 이것이다
+                         "speed_min_mm_s": float(b_speed.min()),
+                         "speed_min_reported_mm_s": float(b_speed_reported.min())}
+        if stopped.any():
+            out["arrive"]["nearest_edge_mm"] = float(edge_mm[stopped].min())
+            out["arrive"]["best_centre_m"] = float(gap[stopped].min())
+            near = stopped & (edge_mm <= 0.0)
+            out["arrive"]["reached"] = bool(near.any())
+            if near.any():
+                out["arrive"]["held"] = bool((near & held).any())
+                if not (near & held).any():
+                    i = int(np.argmin(np.where(near, gap, np.inf)))
+                    out["arrive"]["why_held"] = (
+                        f"도착해 멈춘 프레임 {int(near.sum())}개 가운데 로봇이 바구니에 "
+                        f"닿아 있던 것이 없다 (가장 가까운 순간 로봇 {robot_touch[i]:.2f} N, "
+                        f"로봇 아닌 것 {nonrobot[i]:.2f} N)")
+        else:
+            out["arrive"]["reached"] = False
+            out["notes"].append(
+                f"판 내내 멈춰 선 프레임이 하나도 없다 (발자국이 구역에 가장 가까웠던 것이 "
+                f"{edge_mm.min():.0f} mm)")
+
+    # ── 놓기 조각만 답할 수 있는 것 ─────────────────────────────────────────────────────
+    if seg == "place":
+        near_desk = over_mm < 1000.0
+        if not near_desk.any():
+            out["place"] = {"seat_mm": None, "overhang_mm": None, "reached_desk": False}
+        else:
+            good = (seat_mm >= 0.0) & (seat_mm <= th["SEAT_ON_MAX_MM"])
+            if good.any():
+                i = int(np.argmin(np.where(good, over_mm, np.inf)))
+            else:
+                i = int(np.argmin(np.abs(seat_mm)))
+            out["place"] = {"seat_mm": float(seat_mm[i]), "overhang_mm": float(over_mm[i]),
+                            "reached_desk": True, "at_s": float(a["t"][i])}
+
+        # 감시창의 시작은 **로봇의 단계가 아니라 바구니의 상태**로 잡는다.
+        #
+        # 시트: "「바구니가 로봇의 어느 부위와도 닿지 않게 된 첫 프레임」(t_release)".
+        # 그리퍼가 아니라 **로봇 전체**다 -- 턱은 놨는데 팔뚝에 걸쳐 둔 것은 아직 손을 뗀
+        # 것이 아니다.  상판 위일 것을 같이 걸어 둔다: 상판 밖에서 같은 일이 일어나면 그것은
+        # 낙하이고 위에서 이미 판을 끝냈다.
+        rel = (~on_robot) & on_top
+        if not rel.any():
+            out["watch"] = {"opened": False}
+        else:
+            r = int(np.argmax(rel))
+            w = (a["t"] >= a["t"][r]) & (a["t"] <= a["t"][r] + th["WATCH_S"])
+            # **창의 마지막 WATCH_TAIL_S 초** (시트 Sub 3# ④: "창 마지막 0.5초 동안").
+            # 창이 6초를 다 못 채우고 로그가 끝났으면 있는 것의 꼬리를 본다.
+            t_end = float(a["t"][w].max())
+            tail = w & (a["t"] >= t_end - th["WATCH_TAIL_S"])
+            s = seat_mm[w]
+            worst_seat = float(s.min() if (s < 0).any() else s.max())
+            tilt = np.array([GG.tilt_deg(q) for q in a["crate_quat"][w]])
+            out["watch"] = {"opened": True, "t_release_s": float(a["t"][r]),
+                            "seat_mm": worst_seat,
+                            "overhang_mm": float(over_mm[w].max()),
+                            "tilt_deg": float(tilt.max()),
+                            "tail_speed_mm_s": float(c_speed[tail].max()
+                                                     if tail.any() else c_speed[w][-1]),
+                            "window_s": float(t_end - a["t"][r]),
+                            "window_frames": int(w.sum())}
+            if t_end - a["t"][r] < th["WATCH_S"] - 1e-6:
+                out["notes"].append(
+                    f"감시창이 {t_end - a['t'][r]:.1f}초밖에 안 된다 "
+                    f"(요구 {th['WATCH_S']:.0f}초) — 기록이 먼저 끝났다")
+    return out
+
+
+def merge(parts):
+    """조각들을 한 벌로.  [판 내내] 는 가장 나쁜 것, 나머지는 답한 조각의 것."""
+    m = {"ended": "time_limit"}
+    worst_hit, worst_desk = None, None
+    for p in parts:
+        for k in ("lift", "place", "watch"):
+            if k in p:
+                m[k] = p[k]
+        # 도착은 두 조각에서 나오므로 **더 나은 쪽**을 남긴다.  [한 번이라도] 이므로
+        # 한 조각에서 통과했으면 판 전체로 통과다.
+        if "arrive" in p:
+            cur = m.get("arrive")
+            if cur is None or (p["arrive"].get("reached") and not cur.get("reached")) or (
+                    p["arrive"].get("reached") == cur.get("reached")
+                    and (p["arrive"].get("nearest_edge_mm") or 1e9)
+                    < (cur.get("nearest_edge_mm") or 1e9)):
+                m["arrive"] = p["arrive"]
+        f = p["furniture"]
+        if worst_hit is None or f["worst_mm"] > worst_hit["worst_mm"] or (
+                f["hit"] and not worst_hit["hit"]):
+            worst_hit = f
+        d = p["desk"]
+        if worst_desk is None or d["worst_mm"] > worst_desk["worst_mm"]:
+            worst_desk = d
+        if p.get("stopped_why"):
+            m["ended"] = p["stopped_why"]
+    m["furniture"] = worst_hit
+    m["desk"] = worst_desk
+    # **한 판이 세 조각이므로 경과 시간은 조각의 합이다.**  조각마다 스폰에서 다시 시작하니
+    # 시계도 0 부터 다시 간다 -- 마지막 조각의 t 만 보면 판이 80초짜리로 보인다.
+    m["elapsed_s"] = float(sum(p.get("elapsed_s") or 0.0 for p in parts))
+    if m["ended"] == "time_limit" and m["elapsed_s"] <= R.TIME_LIMIT_S:
+        # 시간이 남았는데 아무 일도 안 일어나 끝난 것.  시트에는 이 이름이 없지만 `ended` 를
+        # 비워 두면 "왜 끝났나" 가 사라진다.
+        m["ended"] = "ok" if (m.get("watch") or {}).get("opened") else "time_limit"
+    return m
+
+
+def main():
+    ap = argparse.ArgumentParser(description="판정 로그를 채점한다.")
+    ap.add_argument("--log", nargs="+", required=True)
+    ap.add_argument("--scene", type=str, default=None,
+                    help="비우면 로그 머리말이 적어 둔 씬 파일을 쓴다.")
+    ap.add_argument("--out", type=str, default=None)
+    ap.add_argument("--quiet", action="store_true")
+    args = ap.parse_args()
+
+    th = {k: getattr(R, k) for k in ("LIFT_OK_MM", "ARRIVE_ZONE_M", "STOP_MM_S", "CONTACT_N",
+                                     "SEAT_ON_MAX_MM", "OVERHANG_OK_MM", "TILT_OK_DEG",
+                                     "WATCH_S", "WATCH_TAIL_S", "DESK_OK_MM", "TIME_LIMIT_S")}
+    parts, heads = [], []
+    scene = None
+    for p in args.log:
+        head, a = load(p)
+        heads.append(head)
+        if scene is None:
+            scene = SS.load(args.scene or head["scene"])
+        parts.append(measure_one(head, a, scene, th))
+
+    m = merge(parts)
+    result = R.score(m)
+    out = {"scene": scene["meta"]["name"], "seat": scene["meta"]["seat"],
+           "corridor": scene["meta"]["corridor"],
+           "logs": [{"file": str(Path(p).name), "segment": h.get("segment"),
+                     "frames": h.get("frames"), "gpu": h.get("gpu"),
+                     "injected": h.get("injected"),
+                     "drift_from_source": h.get("drift_from_source")}
+                    for p, h in zip(args.log, heads)],
+           "measured": m, "per_log": parts, "score": result}
+    if args.out:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(json.dumps(out, ensure_ascii=False, indent=2))
+    if not args.quiet:
+        print(f"씬 {out['scene']}  좌석 {out['seat']}  통로 {out['corridor']}")
+        print(f"조각 {len(parts)}개: "
+              + ", ".join(f"{p['segment']}({p['frames']}프레임)" for p in parts))
+        for p in parts:
+            for nte in p["notes"]:
+                print(f"  * {p['segment']}: {nte}")
+        print()
+        print(R.render(result))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

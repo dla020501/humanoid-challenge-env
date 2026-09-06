@@ -49,6 +49,12 @@
     * 관절은 **이름으로** 맞춘다 (순서로 맞추면 어긋나도 그럴듯해 보인다)
     * 집게의 2~4 번 마디를 **매 프레임 1 번 마디로 채운다** (안 하면 턱이 벌어진 채로 간다)
     * 루트 쿼터니언을 **새로 만들지 않는다** (만들면 로봇이 옆으로 눕는다)
+
+재생하면서 평가표대로 채점한 결과가 같이 찍힌다. 과제 B 의 재생기와 같다. 다만 점수를
+**재생 중에 계산하지 않는다** -- 앱을 띄우기 전에 기록을 통째로 채점해 두고, 토막이 끝날
+때마다 그 토막에 걸린 항목을 알린다. 그렇게 하는 이유가 있다: 항목마다 "몇 번째 프레임에
+달성했는가" 를 재생기가 다시 계산하면 채점기와 다른 답을 낼 여지가 생기고, 그러면 화면에
+찍힌 점수와 `taska_score.py` 가 내는 점수가 조용히 갈린다. 계산은 한 곳에서만 한다.
 """
 
 import argparse
@@ -57,6 +63,7 @@ import importlib.util as _ilu
 import json
 import math
 import os
+import sys
 import threading as _threading
 import time
 
@@ -187,6 +194,24 @@ print()
 taskA_seats = _by_path("taskA_seats", f"{_TASKA}/taskA_seats.py")
 taskA_layout = _by_path("taskA_layout", f"{_TASKA}/taskA_layout.py")
 taskA_shelf_stock = _by_path("taskA_shelf_stock", f"{_TASKA}/taskA_shelf_stock.py")
+
+# ---- 채점 -- 앱을 띄우기 전에 기록을 통째로 채점해 둔다 --------------------------------------
+#
+# 여기서 하지 않고 재생 중에 하면 매 프레임 numpy 를 돌려야 하고, 무엇보다 **항목마다
+# 달성 프레임을 재생기가 다시 판정하게 된다.** 판정은 `scorer/` 한 곳에서만 한다.
+sys.path.insert(0, os.path.join(_TASKA, "scorer"))
+SCORE = None
+try:
+    import taska_score as _TS   # noqa: E402
+    import rubric_taskA as _R   # noqa: E402
+    SCORE = _TS.score_one(DEMO, quiet=True)["score"]
+except SystemExit as _exc:      # 채점용 데이터가 없는 판이면 재생만 한다
+    print(f"[채점] 건너뜀 -- {_exc}\n")
+except Exception as _exc:       # noqa: BLE001  -- 채점이 안 된다고 재생까지 막지 않는다
+    print(f"[채점] 건너뜀 -- {type(_exc).__name__}: {_exc}\n")
+
+# 토막 이름 -> 평가표의 묶음 이름. `rubric_taskA.GROUP` 이 항목마다 묶음을 들고 있다.
+SEG_GROUP = {"pick": "집기", "carry": "이동", "place": "놓기"}
 
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
@@ -376,6 +401,26 @@ def main():
     period = 0.0 if args_cli.hz <= 0 else 1.0 / args_cli.hz
     print(f"[i] 재생 시작 -- 기록 {NFRAMES - start} 프레임을 {total} 장으로\n", flush=True)
 
+    got = [0.0]      # 지금까지 알린 점수 -- [점수] 줄마다 누적을 같이 찍는다
+
+    def announce(group):
+        """이 묶음에 걸린 평가표 항목을 알린다. 점수는 이미 계산돼 있다.
+
+        묶음 이름을 그대로 받는다. 토막 이름을 받아 안에서 바꾸면 `announce(None)` 이
+        「전체」를 뜻하는지 「아무것도 아님」을 뜻하는지가 부르는 쪽에서 안 보인다.
+        """
+        if SCORE is None or group is None:
+            return
+        for key, item in SCORE["items"].items():
+            if _R.GROUP.get(key) != group:
+                continue
+            got[0] += float(item["points"])
+            mark = "O" if item["got"] else ("X" if item["got"] is False else "?")
+            print(f"[점수] {mark} {item['label']}  "
+                  f"+{item['points']:g}/{item['possible']:g}  "
+                  f"누적 {got[0]:g}/{SCORE['possible']:g}", flush=True)
+            print(f"          {item['why']}", flush=True)
+
     t0 = time.time()
     shown = -1
     for n in range(total):
@@ -384,6 +429,8 @@ def main():
         if i >= NFRAMES - 1:
             i, t = NFRAMES - 1, 0.0
         if SEG[i] != shown:
+            if shown >= 0:
+                announce(SEG_GROUP.get(SEG_NAMES[shown]))
             shown = int(SEG[i])
             print(f"[토막] {shown + 1} {SEG_NAMES[shown]}   "
                   f"{(i - start) / FPS:6.1f} 초", flush=True)
@@ -398,11 +445,18 @@ def main():
             print("[i] 창이 닫혔습니다.", flush=True)
             break
 
+    if shown >= 0:
+        announce(SEG_GROUP.get(SEG_NAMES[shown]))    # 마지막 토막
+    announce("전체")                                  # 판 내내 보는 항목
+
     bx, by, _bz = BASE[-1]
     gx, gy, _gyaw = taskA_layout.goal_pose()
     print(f"\n[i] 끝. 로봇이 ({bx:+.3f}, {by:+.3f}) 에 섰고 도착 자리까지 "
-          f"{math.hypot(bx - gx, by - gy):.3f} m 였습니다.")
-    print(f"[i] 이 판의 평가표 점수는 {META['score']} 입니다.\n", flush=True)
+          f"{math.hypot(bx - gx, by - gy):.3f} m 였습니다.\n", flush=True)
+    if SCORE is not None:
+        print(_R.render(SCORE), flush=True)
+    else:
+        print(f"[i] 이 판의 평가표 점수는 {META['score']} 입니다.\n", flush=True)
 
 
 main()

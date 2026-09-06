@@ -1,0 +1,455 @@
+# Copyright 2025.
+#
+# 태스크 A 평가표를 코드로 옮긴 것.  **측정값이 들어가고 점수가 나온다.**
+#
+# 어느 시트를 옮긴 것인가
+#   `Task-A/docs/태스크A_평가표_내가만듬.xlsx` (2026-09-02 사용자가 준 판).  그 전 판
+#   (8항목 30점, `태스크A_평가표.xlsx`)은 **폐기됐다** -- 배점도 판정도 다르다.  옛 구현은
+#   `_rubric_taskA_30pt_old.py.bak` 에 남겨 두었다.
+#
+# WHY THIS FILE IMPORTS NOTHING
+#   채점 코어가 아무것도 import 하지 않으면 단위 시험이 몇 초에 돌고, 이의가 제기됐을 때
+#   판정 로그만으로 다시 채점할 수 있다.  재는 일(`score_from_log.py`)과 점수 매기는
+#   일(여기)을 나누는 것이 요점이다.
+#
+# 항목과 배점 -- **6항목 21점, 시도 3회 합산 63점**
+#
+#   ALL 1#  매장 가구와 부딪히지 않았는가        [판 내내]      4   부딪히면 판 종료
+#   Sub 1#  파란 바구니를 띄웠고 그때 그리퍼가 물었는가 [한 번이라도] 3   두 조건 동시
+#   Sub 2#  목적지에 도착해 멈췄는가             [한 번이라도]  3
+#   Sub 2#  그 시점에 로봇이 들고 있었는가       [그 시점에]    4   떨어뜨리면 판 종료
+#   Sub 3#  책상 상판에 얹었는가                 [한 번이라도]  3   책상 20 mm 미만일 때만
+#   Sub 3#  손 뗀 뒤 6초, 네 조건이 다 맞는가    [6초 창]       4
+#
+#   시트의 「총 합 17」은 오타다 -- Sub 1+2+3 만 더한 값이고 ALL 1# 의 4점이 빠져 있다.
+#   **사용자 확인 2026-09-02: 점수다.  21 × 3 = 63.**
+#
+# 앞 판에서 바뀐 것만 (다시 읽지 않아도 되도록)
+#   * 집기 두 항목이 **하나로** 합쳐졌다 (4+4=8 -> 3, 둘 다 참이어야 통과)
+#   * 「들고 있었는가」가 **그리퍼 -> 로봇 전체**.  베이스에 얹어 나르는 것을 **허용**한다
+#     (시트: "실험해본 결과, 로봇의 바퀴 베이스에 두고 이동도 가능했기 때문에")
+#   * 도착에 숫자가 없어졌다 ("조금이라도 안에 들어가").  **로봇 발자국이 목표 구역에
+#     걸치면 통과** (사용자 결정 2026-09-02)
+#   * 책상 밀림이 5 -> **20 mm** 이고, 별도 항목이 아니라 `placed` 의 조건이 되었다
+#   * 제한 시간 **20분**과 **시도 3회 합산**이 정해졌다 (앞 판은 둘 다 UNDECIDED)
+
+# ---------------------------------------------------------------------------------------------
+# 문턱.  출처를 셋으로 갈라 적는다 -- 이 구분이 이의 제기에 답하는 방식이다.
+#
+#   치수   물체나 로봇의 크기에서 나온 값.  다투려면 물체를 다시 재야 한다
+#   선언   대회가 정하는 값.  시트에 적힌 것은 시트를 인용한다
+#   우리것 우리 실행 분포에서 고른 값.  **하나도 없어야 한다** -- 있으면 참가자에게
+#          우리 궤적을 따라오라고 요구하는 것이 된다
+# ---------------------------------------------------------------------------------------------
+
+# 선언 (시트 Sub 1#).  "바구니가 탁자에서 30 mm 넘게 떠오른 순간이 한 번이라도 있으면"
+LIFT_OK_MM = 30.0
+
+# 선언 (사용자 결정 2026-09-02).  시트는 "목표 지점에 **조금이라도 안에 들어가** 멈춰 선 적이
+# 있으면 통과" 라고만 적고 반경을 안 준다.  구역은 목표점을 중심으로 한 반경 0.10 m 원으로
+# 두고 -- 씬 파일이 `goal.tol_m` 로 이미 그 값을 싣고 온다 -- **로봇 발자국이 그 원에
+# 걸치기만 하면** 통과로 한다.  중심이 원 안에 들어와야 한다는 뜻이 아니다.
+ARRIVE_ZONE_M = 0.10
+
+# 치수.  `FFW_SG2.usd` 의 base_mobile_assy.  앞뒤 -0.403~+0.225 m, 좌우 ±0.301 m 이고
+# 뒤 모서리가 중심에서 sqrt(0.403^2 + 0.301^2) = 0.503 m 뻗는다.
+# 로봇 기준 좌표계에서 +x 가 앞이다.
+ROBOT_FOOTPRINT = {"back": -0.403, "front": 0.225, "half_width": 0.301}
+
+# 선언 (시트 Sub 3# ④).  "멈췄다" 의 뜻.
+STOP_MM_S = 10.0
+
+# 선언.  접촉을 접촉으로 치는 최소 힘.  시트는 "힘의 크기는 보지 않는다" 고 적으므로 이것은
+# **잡음 바닥을 넘는가**를 가르는 값이지 세기를 재는 값이 아니다.  태스크 B 가 같은 질문에
+# 같은 값을 쓴다 (`scripts/tools/task_b_episode.py:2401`).
+CONTACT_N = 0.5
+
+# 선언 (시트 Sub 3# ①).  "바구니 밑면이 상판에서 0 이상 5 mm 이하"
+SEAT_ON_MAX_MM = 5.0
+
+# **재기만 하고 채점에 쓰지 않는다** (사용자 결정 2026-09-02):
+#
+#   "지금 책상에 나란히 바구니를 놓지 않아도 돼.  그냥 놓고 6초동안 떨어지지 않으면 돼."
+#
+# 시트(`태스크A_평가표_내가만듬.xlsx`) Sub 3# ② 는 "걸침 30 mm 이내" 라고 적고 있고, 그
+# 문장은 이 결정으로 **무효가 됐다.**  시트도 같이 고쳐야 한다.
+#
+# 왜 뺐는가 -- 30 mm 는 사실상 "상판과 나란히 놓아라" 였다.  상판 600 x 600 에 바구니가
+# 380 x 590 이라 긴 변 여유가 10 mm 뿐이고, 45 도로 놓으면 대각이 0.70 m 라 반드시 넘는다.
+# 실측된 우리 놓기는 72.1 / 84.0 / 96.0 / 113.7 / 200.3 mm 로 전부 30 을 넘었다.
+#
+# **그래도 값을 지우지는 않는다.**  `score_from_log.py` 가 걸침을 계속 재서 출력에 남기고,
+# 판정 문장에도 숫자가 들어간다.  나중에 다시 채점에 쓰기로 하면 로그를 다시 만들 필요가
+# 없어야 한다 -- 재는 일과 점수 매기는 일을 나눈 이유가 그것이다.
+#
+# 「떨어지지 않았다」는 남은 세 조건이 이미 묻는다: 밑면이 상판에 얹혀 있고(①), 안 넘어졌고
+# (③), 창 끝에 멈춰 있다(④).  상판에서 굴러떨어졌으면 ①이 잡는다 -- 상판보다 725 mm 아래다.
+OVERHANG_OK_MM = 30.0
+OVERHANG_SCORED = False
+
+# 선언 (시트 Sub 3# ③).  "기울기 15도 이내".  어디에 둬도 답이 같다 -- 정상 편이 중앙
+# 0.22 도 / 최악 1.23 도, 넘어진 편이 106.7 과 113.1 도로 두 집단 사이가 통째로 비어 있다.
+TILT_OK_DEG = 15.0
+
+# 선언 (시트 Sub 3#).  "손을 뗀 뒤 6초 동안".
+WATCH_S = 6.0
+
+# 선언 (시트 Sub 3# ④).  "창 마지막 0.5초 동안 바구니 속도가 초당 10 mm 미만".
+WATCH_TAIL_S = 0.5
+
+# 선언 (시트 Sub 3#).  "책상이 2cm 이상 움직였을 시, 가점을 부여하지 않는다".
+# 앞 판은 5 mm 였다.  바닥값은 실측했다 -- 로봇이 책상 근처에도 안 간 편에서 책상은
+# 0.0005~0.0006 mm 를 오가고, 주행 1,180편 중 1,175편이 0.01 mm 미만이다.
+DESK_OK_MM = 20.0
+
+# 선언 (시트 머리 "제한 시간: 20min").
+TIME_LIMIT_S = 1200.0
+
+# 선언 (시트의 「시도 1 / 2 / 3」 열과 「최종 점수 51」).  세 판을 **더한다**.
+ATTEMPTS = 3
+
+# ---------------------------------------------------------------------------------------------
+# **떨림은 채점 항목이 아니다.  넣지 말 것.** (사용자 지시 2026-09-02: "평가 함수에 떨림을
+# 둬서는 안 돼.")
+#
+# 시트가 이미 같은 말을 한다 -- Sub 2# 의 자유도 문단: "중앙 통로로 가든 북쪽 통로로 돌든,
+# 길이·꺾임 수·속도·후진 여부를 전부 보지 않는다.  **오로지 목적지 도착 여부만 본다.**"
+# 떨림은 어떻게 갔는가이지 무엇을 했는가가 아니므로 그 문장에 걸린다.
+#
+# 왜 이 주석이 필요한가: 2026-09-02 에 우리 GT 한 편이 떨림 12.9%(최장 24.1초, 조향 왕복
+# 403배)로 드러났고, 그것을 **채점에서 거르고 싶은 유혹**이 바로 생긴다.  거르는 자리는
+# 여기가 아니라 **넘길 편을 고르는 단계**다 (`automation/tremor_index.py`).  참가자의 주행이
+# 덜덜거려도 도착하면 만점이고, 그것이 맞다 -- 우리 궤적의 매끄러움을 합격선으로 만들면
+# 참가자에게 우리처럼 몰라고 요구하는 것이 된다.
+# ---------------------------------------------------------------------------------------------
+
+ITEMS = ("no_hit", "picked", "arrived", "held", "placed", "stayed")
+
+GROUP = {"no_hit": "전체",
+         "picked": "집기",
+         "arrived": "이동", "held": "이동",
+         "placed": "놓기", "stayed": "놓기"}
+
+POINTS = {"no_hit": 4.0, "picked": 3.0, "arrived": 3.0,
+          "held": 4.0, "placed": 3.0, "stayed": 4.0}
+
+WHEN = {"no_hit": "판 내내", "picked": "한 번이라도", "arrived": "한 번이라도",
+        "held": "그 시점에", "placed": "한 번이라도", "stayed": "손 뗀 뒤 6초"}
+
+LABEL = {"no_hit": "매장 가구와 부딪히지 않았는가",
+         "picked": "바구니를 띄웠고 그때 그리퍼가 물었는가",
+         "arrived": "목적지에 도착해 멈췄는가",
+         "held": "그 시점에 로봇이 들고 있었는가",
+         "placed": "책상 상판에 얹었는가",
+         "stayed": "손 뗀 뒤 6초 동안 잘 놓여 있었는가"}
+
+# 판이 끝난 이유.  **반드시 출력에 남는다** (시트가 그렇게 요구한다) -- 없으면 낙하로 끝난
+# 판과 시간이 다 되어 끝난 판이 점수만 봐서는 똑같아 보인다.
+#
+#   dropped     바구니를 떨어뜨렸다      (시트 Sub 2#)
+#   hit         매장 가구에 부딪혔다     (시트 ALL 1#: "sim, real 모두 평가 종료")
+#   time_limit  20분이 다 됐다
+ENDED = ("ok", "dropped", "hit", "time_limit")
+
+
+def _item(got, why):
+    """`got` 은 True / False / None.
+
+    **None 은 "잴 수 없었다" 이고, 0점이 아니라 그 항목의 배점을 분모에서 뺀다.**
+    안 잰 항목은 실패한 항목이 아니고, 둘을 같은 0 으로 합치는 총점은 거짓말이다.
+    """
+    return {"got": got, "why": why}
+
+
+def zone_gap_mm(base_xy, base_yaw, goal_xy, zone_m=None, footprint=None):
+    """로봇 발자국이 목표 구역에서 얼마나 떨어져 있나 (mm).  **0 이면 걸친 것이다.**
+
+    시트가 "목표 지점에 조금이라도 안에 들어가" 라고만 적어서, 사용자 결정(2026-09-02)으로
+    **반경 `zone_m` 원 vs 로봇 사각 발자국의 겹침**으로 읽는다.  중심이 원 안에 들어와야
+    한다는 뜻이 아니다.
+
+    재는 방법은 교과서 그대로다 -- 목표점을 로봇 좌표계로 옮기고, 발자국 사각형 안으로
+    잘라 붙인 뒤(clamp), 그 점까지의 거리에서 반경을 뺀다.  음수면 겹쳤다는 뜻이라 0 으로
+    자른다.
+
+    **이 함수가 여기 있는 이유:** 이것은 재는 일이 아니라 **평가표가 정한 규칙**이다.
+    문턱을 다투려면 이 함수를 봐야 하고, 그러려면 시뮬레이터 없이 시험할 수 있어야 한다.
+    """
+    import math
+    zone_m = ARRIVE_ZONE_M if zone_m is None else zone_m
+    fp = ROBOT_FOOTPRINT if footprint is None else footprint
+    dx = float(goal_xy[0]) - float(base_xy[0])
+    dy = float(goal_xy[1]) - float(base_xy[1])
+    c, s = math.cos(-float(base_yaw)), math.sin(-float(base_yaw))
+    lx = dx * c - dy * s          # 로봇 기준 앞뒤 (+x 가 앞)
+    ly = dx * s + dy * c          # 로봇 기준 좌우
+    qx = min(max(lx, fp["back"]), fp["front"])
+    qy = min(max(ly, -fp["half_width"]), fp["half_width"])
+    d = math.hypot(lx - qx, ly - qy)
+    return max(0.0, d - zone_m) * 1000.0
+
+
+def thresholds():
+    """이 판이 쓰는 문턱 전부.  출력에 실어 보내 이의 제기에 답할 수 있게 한다."""
+    return dict(LIFT_OK_MM=LIFT_OK_MM, ARRIVE_ZONE_M=ARRIVE_ZONE_M,
+                ROBOT_FOOTPRINT=dict(ROBOT_FOOTPRINT), STOP_MM_S=STOP_MM_S,
+                CONTACT_N=CONTACT_N, SEAT_ON_MAX_MM=SEAT_ON_MAX_MM,
+                OVERHANG_OK_MM=OVERHANG_OK_MM, OVERHANG_SCORED=OVERHANG_SCORED,
+                TILT_OK_DEG=TILT_OK_DEG,
+                WATCH_S=WATCH_S, WATCH_TAIL_S=WATCH_TAIL_S, DESK_OK_MM=DESK_OK_MM,
+                TIME_LIMIT_S=TIME_LIMIT_S, ATTEMPTS=ATTEMPTS)
+
+
+def score(m, th=None):
+    """측정값 `m` 에 점수를 매긴다.
+
+    `m` 의 모양은 `score_from_log.measure()` 가 만든다.  여기서는 문턱만 적용한다.
+    빠진 열쇠는 None 으로 읽는다 -- 채점기가 KeyError 로 죽는 것보다 그 항목이 분모에서
+    빠지고 `unscored` 에 이름이 남는 편이 훨씬 낫다.
+    """
+    t = thresholds()
+    if th:
+        t.update(th)
+
+    lift = m.get("lift") or {}
+    arrive = m.get("arrive") or {}
+    furn = m.get("furniture") or {}
+    place = m.get("place") or {}
+    watch = m.get("watch") or {}
+    desk = m.get("desk") or {}
+    ended = m.get("ended")
+
+    items = {}
+
+    # ---- ALL 1#  가구와 부딪히지 않았는가 ----------------------------------------------------
+    # [판 내내] 이므로 판이 일찍 끝났어도 **그때까지는 채점한다.**  부딪힌 적이 없으면 통과다
+    # -- 짧게 끝난 판을 미검증으로 돌리면 일찍 떨어뜨리는 쪽이 이득을 본다.
+    #
+    # **문턱이 없다.**  로봇(또는 든 바구니)의 발자국이 기물의 상자와 겹쳤는가 하나뿐이고,
+    # 겹침은 0 을 넘느냐 마느냐이지 정도의 문제가 아니다.  숫자를 지어낼 자리가 없다.
+    hit = furn.get("hit")
+    if hit is None:
+        items["no_hit"] = _item(None, "충돌을 못 읽었다")
+    elif hit:
+        items["no_hit"] = _item(False,
+                                f"{furn.get('what') or '매장 가구'} 를 "
+                                f"{furn.get('worst_mm', 0.0):.1f} mm 파고들었다"
+                                + (f" ({furn['part']})" if furn.get("part") else "")
+                                + f", {furn.get('frames', 0)} 프레임")
+    else:
+        items["no_hit"] = _item(True, "어느 기물과도 겹치지 않았다 "
+                                      f"(최악 침투 {furn.get('worst_mm', 0.0):.1f} mm)")
+
+    # ---- Sub 1#  띄웠고, 그 시점에 그리퍼가 물었는가 ------------------------------------------
+    # **한 항목이다.**  둘 다 참이어야 3점이고, 하나만 참이면 0점이다 (시트가 두 물음을 한 칸에
+    # 넣고 배점을 하나만 줬다).  여기만은 「그리퍼」다 -- 이동(`held`)과 헷갈리지 말 것.
+    peak = lift.get("peak_mm")
+    gripped = lift.get("gripped")
+    if peak is None:
+        items["picked"] = _item(None, "바구니 높이를 못 읽었다")
+    elif peak < t["LIFT_OK_MM"]:
+        items["picked"] = _item(False, f"가장 높이 떠오른 순간이 {peak:.1f} mm "
+                                       f"(문턱 {t['LIFT_OK_MM']:.0f})")
+    elif gripped is None:
+        items["picked"] = _item(None, f"{peak:.1f} mm 떠올랐으나 그 프레임의 접촉을 못 읽었다")
+    elif gripped:
+        items["picked"] = _item(True, f"바구니가 {peak:.1f} mm 떠올랐고 "
+                                      f"(문턱 {t['LIFT_OK_MM']:.0f}) 그 프레임에 그리퍼 링크가 "
+                                      f"닿아 있었으며 로봇 아닌 것에는 닿아 있지 않았다")
+    else:
+        items["picked"] = _item(False, f"{peak:.1f} mm 떠올랐으나 "
+                                       + (lift.get("why_grip")
+                                          or "그 프레임에 그리퍼가 바구니에 닿아 있지 않았다"))
+
+    # ---- Sub 2#  도착해 멈췄는가 -------------------------------------------------------------
+    # **"안 멈췄다" 와 "못 쟀다" 는 다르다.**  판 내내 굴러다니기만 한 로봇은 도착한 적이
+    # 없는 것이지 측정이 안 된 것이 아니다 -- None 으로 두면 그 점수가 분모에서 빠져,
+    # 멈추지 않는 쪽이 총점 비율에서 이득을 본다.
+    reached = arrive.get("reached")
+    edge = arrive.get("nearest_edge_mm")
+    if arrive.get("stopped_ever") is False:
+        items["arrived"] = _item(False, "판 내내 멈춰 선 프레임이 하나도 없다"
+                                        + (f" (발자국이 구역에서 가장 가까웠던 것이 {edge:.0f} mm)"
+                                           if edge is not None else ""))
+    elif reached is None:
+        items["arrived"] = _item(None, "베이스 자세를 못 읽었다")
+    elif reached:
+        items["arrived"] = _item(True, "멈춰 선 채 로봇 발자국이 목표 구역"
+                                       f"(반경 {t['ARRIVE_ZONE_M'] * 1000:.0f} mm)에 걸쳤다")
+    else:
+        items["arrived"] = _item(False, "멈춰 섰지만 발자국이 목표 구역에 닿지 않았다"
+                                        + (f" (가장 가까웠던 것이 {edge:.0f} mm)"
+                                           if edge is not None else ""))
+
+    # ---- Sub 2#  그 시점에 로봇이 들고 있었는가 -----------------------------------------------
+    # **여기는 「그리퍼」가 아니라 「로봇」이다.**  시트가 명시적으로 갈라 놓았다 -- 바퀴
+    # 베이스에 얹어 나른 것도 통과다.  집기(`picked`)와 하나로 합치지 말 것.
+    held = arrive.get("held")
+    if items["arrived"]["got"] is False:
+        items["held"] = _item(False, "도착해 멈춘 적이 없어 볼 시점이 없다")
+    elif items["arrived"]["got"] is None or held is None:
+        items["held"] = _item(None, "그 프레임의 접촉을 못 읽었다")
+    elif held:
+        items["held"] = _item(True, "로봇의 어느 부위가 바구니에 닿아 있었고, "
+                                    "로봇이 아닌 것에는 닿아 있지 않았다")
+    else:
+        items["held"] = _item(False, arrive.get("why_held") or
+                              "도착 시점에 로봇이 바구니를 들고 있지 않았다")
+
+    # ---- Sub 3#  책상 상판에 얹었는가 --------------------------------------------------------
+    # 판이 낙하나 충돌로 끝났으면 Sub 3# 는 통째로 못 얻는다.  **None 이 아니라 False** 다 --
+    # 못 잰 것이 아니라 못 한 것이다.
+    #
+    # 시트: "여기는 얹히기(책상 상판과 접촉)만 하면 됨."  **걸침을 여기서 보지 않는다** --
+    # 다음 항목(6초 창)이 그것을 본다.  대신 **책상이 20 mm 이상 움직였으면 가점이 없다.**
+    if ended in ("dropped", "hit"):
+        why = ("바구니를 떨어뜨려 판이 끝났다" if ended == "dropped"
+               else "매장 가구에 부딪혀 판이 끝났다")
+        items["placed"] = _item(False, why)
+        items["stayed"] = _item(False, why)
+    else:
+        seat = place.get("seat_mm")
+        dm = desk.get("worst_mm")
+        if place.get("reached_desk") is False:
+            items["placed"] = _item(False, "바구니가 책상 근처에 온 적이 없다")
+        elif seat is None:
+            items["placed"] = _item(None, "바구니나 책상 자세를 못 읽었다")
+        elif not (0.0 <= seat <= t["SEAT_ON_MAX_MM"]):
+            items["placed"] = _item(False, f"상판 대비 높이 {seat:.1f} mm "
+                                           f"(0~{t['SEAT_ON_MAX_MM']:.0f} 이어야 한다)")
+        elif dm is None:
+            items["placed"] = _item(None, "책상이 얼마나 움직였는지 못 읽었다 "
+                                          "(동적으로 스폰됐나)")
+        elif dm > t["DESK_OK_MM"]:
+            items["placed"] = _item(False, f"상판에 얹히기는 했으나 책상이 {dm:.1f} mm 밀렸다 "
+                                           f"(문턱 {t['DESK_OK_MM']:.0f})")
+        else:
+            items["placed"] = _item(True, f"상판에서 {seat:.1f} mm 뜬 채 얹혔고 "
+                                          f"책상은 {dm:.3f} mm 움직였다 "
+                                          f"(문턱 {t['DESK_OK_MM']:.0f})")
+
+        # ---- Sub 3#  손 뗀 뒤 6초 --------------------------------------------------------
+        # 감시창이 안 열렸으면 0점이다.  손을 끝내 안 뗀 것이고, 놓는 것이 과제다.
+        #
+        # **"안 열렸다"(False) 와 "열렸는지 모른다"(None) 는 다르다.**  측정기가 `opened` 를
+        # 아예 안 실어 보냈으면 접촉을 못 읽었다는 뜻이고, 그것을 0점으로 매기면 재지도 않고
+        # 4점을 깎는 것이 된다.
+        opened = watch.get("opened")
+        if opened is None:
+            items["stayed"] = _item(None, "손을 뗐는지 자체를 못 읽었다")
+        elif not opened:
+            items["stayed"] = _item(False, "손을 떼지 않아 감시창이 열리지 않았다")
+        else:
+            w_seat = watch.get("seat_mm")
+            w_over = watch.get("overhang_mm")
+            w_tilt = watch.get("tilt_deg")
+            w_spd = watch.get("tail_speed_mm_s")
+            if None in (w_seat, w_over, w_tilt, w_spd):
+                items["stayed"] = _item(None, "감시창 안에서 못 읽은 값이 있다")
+            else:
+                bad = []
+                if not (0.0 <= w_seat <= t["SEAT_ON_MAX_MM"]):
+                    bad.append(f"받침 {w_seat:.1f} mm (0~{t['SEAT_ON_MAX_MM']:.0f})")
+                # **걸침은 재기만 한다** (사용자 결정 2026-09-02, 위 상수의 머리말 참조).
+                # 켜고 싶으면 `OVERHANG_SCORED = True` 하나만 바꾸면 된다.
+                if t.get("OVERHANG_SCORED") and w_over > t["OVERHANG_OK_MM"]:
+                    bad.append(f"걸침 {w_over:.1f} mm (문턱 {t['OVERHANG_OK_MM']:.0f})")
+                if w_tilt > t["TILT_OK_DEG"]:
+                    bad.append(f"기울기 {w_tilt:.1f} 도 (문턱 {t['TILT_OK_DEG']:.0f})")
+                if w_spd >= t["STOP_MM_S"]:
+                    bad.append(f"창 마지막 {t['WATCH_TAIL_S']:.1f}초 속도 {w_spd:.1f} mm/s "
+                               f"(문턱 {t['STOP_MM_S']:.0f})")
+                head = f"{t['WATCH_S']:.0f}초 창 최악 — "
+                # 걸침은 채점에 안 쓰지만 **두 문장 모두에 숫자를 남긴다** -- 나중에 다시
+                # 채점에 쓰기로 해도 로그를 다시 만들 필요가 없어야 한다.
+                tail = (f" (걸침 {w_over:.1f} mm 는 쟀으나 채점에 쓰지 않는다)"
+                        if not t.get("OVERHANG_SCORED") else "")
+                if bad:
+                    items["stayed"] = _item(False, head + " / ".join(bad) + tail)
+                else:
+                    items["stayed"] = _item(True,
+                                            head + f"받침 {w_seat:.1f} mm / 기울기 {w_tilt:.1f} 도 "
+                                            f"/ 창 끝 {w_spd:.1f} mm/s" + tail)
+
+    # ---- 합산 -------------------------------------------------------------------------------
+    out = {}
+    for k in ITEMS:
+        it = items[k]
+        got = it["got"]
+        out[k] = {"got": got, "why": it["why"], "when": WHEN[k], "label": LABEL[k],
+                  "points": POINTS[k] if got else 0.0,
+                  "possible": 0.0 if got is None else POINTS[k]}
+
+    groups = {}
+    for k in ITEMS:
+        g = groups.setdefault(GROUP[k], {"points": 0.0, "possible": 0.0})
+        g["points"] += out[k]["points"]
+        g["possible"] += out[k]["possible"]
+
+    return {"items": out, "groups": groups,
+            "total": sum(out[k]["points"] for k in ITEMS),
+            "possible": sum(out[k]["possible"] for k in ITEMS),
+            "full": sum(POINTS[k] for k in ITEMS),
+            "unscored": [k for k in ITEMS if out[k]["got"] is None],
+            "ended": ended,
+            "elapsed_s": m.get("elapsed_s"),
+            "thresholds": t}
+
+
+def total(attempts):
+    """시도 여러 판의 최종 점수.  **더한다** (시트: 최종 점수 = 배점 x 3).
+
+    `attempts` 는 `score()` 결과의 목록.  세 판보다 적게 주면 **모자란 판은 0점으로 세지
+    않고 만점에서도 뺀다** -- 아직 안 돌린 판과 0점 받은 판은 다르다.
+    """
+    got = [a for a in attempts if a]
+    return {"attempts": len(got),
+            "of": ATTEMPTS,
+            "total": sum(a["total"] for a in got),
+            "possible": sum(a["possible"] for a in got),
+            "full": sum(POINTS[k] for k in ITEMS) * ATTEMPTS,
+            "per_attempt": [a["total"] for a in got],
+            "ended": [a.get("ended") for a in got]}
+
+
+def _pad(text, width):
+    """동아시아 글자를 두 칸으로 세어 폭을 맞춘다.
+
+    `str.ljust` 는 글자 수를 세므로 한글 표가 들쭉날쭉해진다.
+    """
+    import unicodedata
+    w = sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in text)
+    return text + " " * max(0, width - w)
+
+
+def render(result, width=42):
+    """사람이 읽는 채점표."""
+    mark = {True: "O", False: "X", None: "-"}
+    lines = []
+    last = None
+    for k in ITEMS:
+        it = result["items"][k]
+        g = GROUP[k]
+        if g != last:
+            gp = result["groups"][g]
+            lines.append(f"[{g}]  {gp['points']:.0f} / {gp['possible']:.0f}")
+            last = g
+        lines.append(f"  {mark[it['got']]}  {_pad(it['label'], width)} "
+                     f"{it['points']:>4.0f}/{it['possible']:.0f}  {it['why']}")
+    lines.append("")
+    lines.append(f"합계  {result['total']:.0f} / {result['possible']:.0f}"
+                 + (f"   (만점 {result['full']:.0f}, "
+                    f"못 잰 항목 {len(result['unscored'])}개는 분모에서 뺐다)"
+                    if result["unscored"] else f"   (만점 {result['full']:.0f})"))
+    el = result.get("elapsed_s")
+    lines.append(f"판이 끝난 이유: {result['ended']}"
+                 + (f"   ({el:.0f}초 / 제한 {TIME_LIMIT_S:.0f}초)" if el is not None else ""))
+    return "\n".join(lines)
+
+
+def render_total(tot):
+    """시도 3회 합산."""
+    per = " + ".join(f"{p:.0f}" for p in tot["per_attempt"]) or "-"
+    return (f"시도 {tot['attempts']}/{tot['of']}판:  {per}  =  "
+            f"{tot['total']:.0f} / {tot['possible']:.0f}   (만점 {tot['full']:.0f})\n"
+            f"판이 끝난 이유: {', '.join(str(e) for e in tot['ended']) or '-'}")
