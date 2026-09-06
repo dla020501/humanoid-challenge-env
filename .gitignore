@@ -16,4 +16,6 @@ docker/dist/
 docker/challenge-overlay.tar.gz
 
 # 계획 문서 — 커밋하지 않는다
-docs/
+docs/*-plan.md
+docs/*-todo.md
+docs/*-notes.md
