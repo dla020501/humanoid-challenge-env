@@ -27,30 +27,23 @@
 docker/       도커 실행 구성. 환경 코드(cyclo_lab)와 에셋은 배포 이미지 안에 들어 있습니다
 scripts/      주최측 제공 스크립트 — 씬 생성기(task 별)와 데모 평가 서버.
               컨테이너의 /workspace/challenge_scripts 로 붙습니다
-  taskA/          과제 A 의 장면 정의 — 12 좌석, 목적지, 스툴, 진열, 실측값. 읽어 보셔도 됩니다
-                  demos/ 는 정답 주행 세 판(전부 만점), stores/ 는 미리 구워 둔 진열 열두 벌.
-                  task_a_replay.py 가 demos/ 를 틀고, task_a_demo.py 가 stores/ 를 씁니다
-  taskB/          과제 B 의 채점기와 시연 기록 — taskb_score.py 가 평가표(상품 하나 15항목 30점)대로
-                  채점하고, demos/ 는 시연 일곱 판. task_b_replay.py 가 둘 다 씁니다
-  taskC/          과제 C 의 장면 정의(상품 8 종, 계산대 위 배치 규칙, 검사)와 시연 기록·채점기 — demos_gt/ 는
-                  상품 3개 연속 정답 궤적 세 판, demos/ 는 품목별 한 판, scorer/ 는 평가표(상품 하나 5항목 17점) 채점기
+  taskA/          과제 A 에 필요한 파일. 시연 기록 3판, 채점기 없음
+  taskB/          과제 B 에 필요한 파일. 시연 기록 7판, 채점기
+  taskC/          과제 C 에 필요한 파일. 시연 기록 3판, 채점기
   demo_server/    채점과 같은 방식으로 정책 서버를 붙여 보는 데모 평가 서버 (준비 중)
 run/          실행 진입점. run_gui.sh 가 GUI 로 컨테이너를 띄우고,
-              run_task_*.bash 가 해당 과제의 씬을 랜덤하게 하나 생성해 띄웁니다 (준비 중)
+              run_task_*.sh 가 해당 과제의 씬을 랜덤하게 하나 생성해 띄웁니다
 workspace/    참가자 작업 공간. 컨테이너의 /workspace/user 로 붙습니다 (git 미추적)
 ```
 
 `scripts/` 와 `workspace/` 는 마운트라서, 내용이 늘어나면 `git pull` 만 하면
 컨테이너를 다시 만들지 않고 바로 쓸 수 있습니다.
 
-이미지를 무엇으로 어떻게 굽는지는 `docker/Dockerfile` 과 `docker/build_image.sh` 에
-그대로 적혀 있습니다. 참가자가 쓸 일은 없지만, 이미지에 무엇이 들어갔고 무엇을
-뺐는지는 그 두 파일이 정본입니다.
 
 ## 요구사항
 
 - Ubuntu 22.04 (x86-64), NVIDIA GPU — **VRAM 8 GB 이상, 16 GB 이상 권장**
-- NVIDIA 드라이버: [Isaac Sim 5.1 요구사항](https://docs.isaacsim.omniverse.nvidia.com/latest/installation/requirements.html)을 채우는 버전
+- NVIDIA 드라이버: [Isaac Sim 5.1 요구사항](https://docs.isaacsim.omniverse.nvidia.com/latest/installation/requirements.html)
 - Docker 와 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
 - 화면으로 보려면 X11 세션 (Wayland 는 XWayland 를 거칩니다)
 
@@ -76,11 +69,6 @@ docker exec -it challenge_env bash
 
 > `container ... is not running` 이 나오면 `docker logs challenge_env` 를 보세요.
 > 대부분 1번(ACCEPT_EULA)을 건너뛴 경우입니다.
-
-> **이미지를 미리 구워 나눠 주지 않는 이유** — Isaac Sim 컨테이너의 라이선스(NVIDIA
-> Isaac Sim Additional Software and Materials License)가 제3자 재배포를 허용하지
-> 않습니다. 그래서 NVIDIA 바탕 이미지는 각자 NVIDIA 레지스트리에서 직접 받고(1번의
-> 동의가 그 조건입니다), 대회 쪽 코드와 에셋만 오버레이 아카이브로 배포합니다.
 
 ### 스크립트를 돌리는 세 가지 규칙
 
@@ -401,7 +389,7 @@ Task C의 대상 상품 8종은 다음과 같습니다.
 
 생성되는 씬(Scene)의 형태는 `--seed` 하나로 결정됩니다. 어떤 상품 3개가 오는지, 각 상품이 띠 안 어느 위치에 어떤 자세로 놓이는지가 모두 이 값에서 나옵니다.
 
-* **`--seed` (환경 시드):** 고유한 장면 번호입니다. 값이 동일하면 언제, 어느 컴퓨터에서 실행해도 100% 동일한 환경이 스폰됩니다. **0·1·2는 평가 표본 시드**로, 주최 측 정답 궤적(`cstore-challenge` 저장소 `ship/ground_truth_sample/`의 세 판)과 같은 장면이 스폰됩니다. 이때는 딜하지 않고 `scripts/taskC/samples/scene_<n>.json`에 담긴 정착된 배치를 그대로 세우므로 정답 궤적과 mm 단위까지 같은 자리입니다(원 시드 3015066000·3050039000·4156003000).
+* **`--seed` (환경 시드):** 고유한 장면 번호입니다. 값이 동일하면 언제, 어느 컴퓨터에서 실행해도 100% 동일한 환경이 스폰됩니다. **0·1·2는 평가 표본 시드**로, 주최 측 정답 궤적과 같은 장면이 스폰됩니다. 이때는 딜하지 않고 `scripts/taskC/samples/scene_<n>.json`에 담긴 정착된 배치를 그대로 세우므로 정답 궤적과 mm 단위까지 같은 자리입니다.
 * **`--scene-file` (장면 파일):** 딜하지 않고 주어진 장면 JSON(`--scene-json` 출력이나 정답 표본의 `scene.json`)의 상품 자세를 그대로 세웁니다. 정답 궤적을 재생하거나 채점 로직을 맞춰 볼 때 씁니다.
 * **`--products` (상품 지정):** 코드용 이름 3개를 쉼표로 주면 시드가 고르는 대신 그 상품 3개를 사용합니다. **첫 번째가 목표 상품**입니다. (예: `--products cocacola_zero,lotte_sand,yegam_original`)
 * *참고:* 상품은 스폰 뒤 3초간 물리로 안정화되며, 띠를 벗어나거나 넘어지거나 QR 방위가 3° 이상 틀어지거나 간격이 10 cm 미만이면 같은 시드 안에서 자동으로 재배치(최대 50회)합니다. 따라서 출력되는 좌표는 스폰 값이 아니라 **안정화된 뒤 실제로 측정한 값**입니다.
@@ -499,8 +487,6 @@ Task A·B 재생기가 기록된 자세를 프레임마다 그대로 써 넣는 
 
 `--set gt`의 `--seed`는 Task A와 같이 **장면을 결정하는 값이면서 동시에 재생할 기록을 고르는 값입니다.** 즉 `task_c_demo.py --seed 0`과 `task_c_replay.py --set gt --seed 0`은 동일한 계산대 장면을 스폰합니다. 반면 `--set single`의 `--seed`는 Task B와 같이 재생할 기록의 번호일 뿐이며, 장면은 기록에 동봉된 `taskC_qr_scene_<시드>.json`에서 옵니다.
 
-동봉된 기록은 모두 수집 파이프라인에서 성공(등급 CLEAN, 스캐너 인식 1회 이상, 띠 안 배치)한 판입니다. 이 재생기로 다시 돌려 상품이 들려 스캐너 앞까지 갔다가 띠 안 제자리로 돌아오는 것까지 확인한 편은 `gt` 시드 0과 `single` 시드 6(코카콜라)이며, `single` 시드 5(칠성사이다 캔)는 재생에서 파지가 재현되지 않아 다른 기록으로 교체할 예정입니다.
-
 #### 재생 옵션
 
 | 옵션 | 뜻 |
@@ -524,7 +510,7 @@ Task A·B 재생기가 기록된 자세를 프레임마다 그대로 써 넣는 
 python3 scripts/taskC/scorer/selftest.py      # 기하·시나리오·규정 준수 35개 검사
 ```
 
-평가 기준 원문과 미확정 항목(제한 시간, 총점 표기)은 `scripts/taskC/scorer/EVALUATION_DRAFT.md`에, 콜백 배선 방법은 `scripts/taskC/scorer/README.md`에 있습니다. **재생 중 실시간 채점(`[점수]` 출력)은 준비 중**이며, 채점 기준은 확정 과정에서 바뀔 수 있습니다.
+**재생 중 실시간 채점(`[점수]` 출력)은 준비 중**이며, 채점 기준은 확정 과정에서 바뀔 수 있습니다.
 
 ### 7. 좌표계
 
@@ -570,33 +556,12 @@ data/
   └── store/                 # 과제 A 매장 환경 (184 MB)
       ├── manifest.json        # 매장 내 진열대·냉장고 20종 및 배치 상품 35종 정보
       ├── layout.json          # 매장 전체 레이아웃
-      ├── eatin_measured.json  # 시식 코너 실측 데이터 (12개 시작 좌석 생성 기준)
-      ├── destinations.json    # 과제 A 목적지 진열대 및 책상 위치 정보
       └── scene/               # 과제 A에 스폰되는 매장 전체 3D 씬 (USD)
           ├── fixture_kit/out/store_scene.usd  # 매장 씬의 최상위(Root) 경로
           ├── fixture_kit/<킷>/assets/...      # 곤돌라, 냉동고, 와인, 시식 세트 등
           └── source/cyclo_lab/data/props/...  # 쇼케이스, 계산대 등 단일 집기 에셋
 
 ```
-
-### `store/` 와 `products/` 의 차이점
-
-* `store/` 내의 `.json` 파일들이 매장의 구성을 텍스트(데이터)로 정의한다면, `scene/` 디렉토리는 렌더링에 사용되는 매장 환경 자체입니다.
-* 편의점 전체를 이동해야 하는 **과제 A**에서는 이 `scene/` 매장 전체가 스폰되지만, 단일 진열대만 사용하는 **과제 B**에서는 이 매장 씬을 쓰지 않습니다. (단, 과제 B 환경 초기화 시에도 `manifest.json`은 공통으로 참조합니다.)
-* `store/` 에셋과 `products/` 에셋은 파일명이나 구성이 겹치지 않는 완전히 별개의 데이터셋으로 분리되어 있습니다.
-
-### 디렉토리 구조가 원본 그대로 보존된 이유 (상대 경로 설계)
-
-`store/scene/` 하위 디렉토리의 구조가 다소 복잡하게 유지되는 것에는 기술적인 이유가 있습니다.
-
-매장 USD 파일은 94개의 레이어와 180장의 텍스처 등 총 274개의 파일을 참조하는데, **모든 경로가 상대 경로(Relative Path)로 하드코딩**되어 있습니다.
-
-* **장점:** 디렉토리 내부의 위치 관계만 지키면 경로를 단 한 글자도 수정하지 않고 통째로 복사하거나 이동시킬 수 있습니다.
-* **단점:** 폴더명을 깔끔하게 정리하려 할 경우 274개의 참조 경로를 모두 수동으로 갱신해야 하며, 하나라도 누락되면 해당 집기가 텍스처를 잃고 회색으로 렌더링됩니다.
-
-이러한 의존성 깨짐을 방지하기 위해 `scene/` 디렉토리를 원본 저장소의 루트처럼 취급하여 하위 구조를 원본 그대로 보존했습니다.
-
-이는 개별 상품 파일(`products/`)에도 동일하게 적용됩니다. 각 상품의 USD 파일 역시 색상 텍스처를 자기 폴더 안의 상대 경로(`./textures/albedo.png`)로 탐색하므로, 개별 상품 폴더 하나만 떼어 다른 곳으로 복사하더라도 텍스처가 온전히 유지됩니다.
 
 ## GUI 화면으로 시뮬레이터 실행하기
 
