@@ -1,0 +1,262 @@
+{
+ "made_by": "Task-A/eval_kit/bake_stores.py",
+ "kinds": [
+  "gondola"
+ ],
+ "store_usd": "/workspace/cyclo_lab/fixture_kit/out/store_scene.usd",
+ "note": "변주는 store_seed % <변주 수> 로 고른다. 진열기를 다시 돌리지 않으므로 어느 기계에서도 같은 그림이 나온다 (머리말 참조).",
+ "variants": [
+  {
+   "variant": 0,
+   "dir": "store_v00",
+   "bake_seed": 1,
+   "units": 12,
+   "kb": 197.4,
+   "gondola_meshes": {
+    "Kit_06_gondola": 46,
+    "Kit_07_gondola": 52,
+    "Kit_08_gondola": 46,
+    "Kit_09_gondola": 48,
+    "Kit_10_gondola": 50,
+    "Kit_11_gondola": 50,
+    "Kit_12_gondola": 50,
+    "Kit_13_gondola": 50,
+    "Kit_14_gondola": 52,
+    "Kit_15_gondola": 50,
+    "Kit_16_gondola": 46,
+    "Kit_17_gondola": 52
+   }
+  },
+  {
+   "variant": 1,
+   "dir": "store_v01",
+   "bake_seed": 2,
+   "units": 12,
+   "kb": 196.4,
+   "gondola_meshes": {
+    "Kit_06_gondola": 46,
+    "Kit_07_gondola": 52,
+    "Kit_08_gondola": 46,
+    "Kit_09_gondola": 48,
+    "Kit_10_gondola": 50,
+    "Kit_11_gondola": 50,
+    "Kit_12_gondola": 48,
+    "Kit_13_gondola": 52,
+    "Kit_14_gondola": 50,
+    "Kit_15_gondola": 50,
+    "Kit_16_gondola": 52,
+    "Kit_17_gondola": 50
+   }
+  },
+  {
+   "variant": 2,
+   "dir": "store_v02",
+   "bake_seed": 3,
+   "units": 12,
+   "kb": 195.0,
+   "gondola_meshes": {
+    "Kit_06_gondola": 46,
+    "Kit_07_gondola": 52,
+    "Kit_08_gondola": 46,
+    "Kit_09_gondola": 50,
+    "Kit_10_gondola": 50,
+    "Kit_11_gondola": 50,
+    "Kit_12_gondola": 52,
+    "Kit_13_gondola": 50,
+    "Kit_14_gondola": 50,
+    "Kit_15_gondola": 52,
+    "Kit_16_gondola": 44,
+    "Kit_17_gondola": 50
+   }
+  },
+  {
+   "variant": 3,
+   "dir": "store_v03",
+   "bake_seed": 4,
+   "units": 12,
+   "kb": 195.2,
+   "gondola_meshes": {
+    "Kit_06_gondola": 46,
+    "Kit_07_gondola": 52,
+    "Kit_08_gondola": 50,
+    "Kit_09_gondola": 50,
+    "Kit_10_gondola": 50,
+    "Kit_11_gondola": 52,
+    "Kit_12_gondola": 48,
+    "Kit_13_gondola": 50,
+    "Kit_14_gondola": 52,
+    "Kit_15_gondola": 50,
+    "Kit_16_gondola": 46,
+    "Kit_17_gondola": 50
+   }
+  },
+  {
+   "variant": 4,
+   "dir": "store_v04",
+   "bake_seed": 5,
+   "units": 12,
+   "kb": 195.2,
+   "gondola_meshes": {
+    "Kit_06_gondola": 46,
+    "Kit_07_gondola": 52,
+    "Kit_08_gondola": 50,
+    "Kit_09_gondola": 48,
+    "Kit_10_gondola": 52,
+    "Kit_11_gondola": 50,
+    "Kit_12_gondola": 48,
+    "Kit_13_gondola": 52,
+    "Kit_14_gondola": 50,
+    "Kit_15_gondola": 50,
+    "Kit_16_gondola": 44,
+    "Kit_17_gondola": 50
+   }
+  },
+  {
+   "variant": 5,
+   "dir": "store_v05",
+   "bake_seed": 6,
+   "units": 12,
+   "kb": 196.3,
+   "gondola_meshes": {
+    "Kit_06_gondola": 50,
+    "Kit_07_gondola": 52,
+    "Kit_08_gondola": 46,
+    "Kit_09_gondola": 52,
+    "Kit_10_gondola": 50,
+    "Kit_11_gondola": 50,
+    "Kit_12_gondola": 52,
+    "Kit_13_gondola": 50,
+    "Kit_14_gondola": 50,
+    "Kit_15_gondola": 50,
+    "Kit_16_gondola": 46,
+    "Kit_17_gondola": 50
+   }
+  },
+  {
+   "variant": 6,
+   "dir": "store_v06",
+   "bake_seed": 7,
+   "units": 12,
+   "kb": 195.8,
+   "gondola_meshes": {
+    "Kit_06_gondola": 50,
+    "Kit_07_gondola": 52,
+    "Kit_08_gondola": 52,
+    "Kit_09_gondola": 48,
+    "Kit_10_gondola": 50,
+    "Kit_11_gondola": 52,
+    "Kit_12_gondola": 48,
+    "Kit_13_gondola": 50,
+    "Kit_14_gondola": 50,
+    "Kit_15_gondola": 50,
+    "Kit_16_gondola": 46,
+    "Kit_17_gondola": 50
+   }
+  },
+  {
+   "variant": 7,
+   "dir": "store_v07",
+   "bake_seed": 8,
+   "units": 12,
+   "kb": 196.2,
+   "gondola_meshes": {
+    "Kit_06_gondola": 46,
+    "Kit_07_gondola": 52,
+    "Kit_08_gondola": 48,
+    "Kit_09_gondola": 48,
+    "Kit_10_gondola": 52,
+    "Kit_11_gondola": 50,
+    "Kit_12_gondola": 48,
+    "Kit_13_gondola": 50,
+    "Kit_14_gondola": 50,
+    "Kit_15_gondola": 50,
+    "Kit_16_gondola": 46,
+    "Kit_17_gondola": 50
+   }
+  },
+  {
+   "variant": 8,
+   "dir": "store_v08",
+   "bake_seed": 9,
+   "units": 12,
+   "kb": 194.6,
+   "gondola_meshes": {
+    "Kit_06_gondola": 52,
+    "Kit_07_gondola": 52,
+    "Kit_08_gondola": 46,
+    "Kit_09_gondola": 52,
+    "Kit_10_gondola": 50,
+    "Kit_11_gondola": 50,
+    "Kit_12_gondola": 48,
+    "Kit_13_gondola": 50,
+    "Kit_14_gondola": 50,
+    "Kit_15_gondola": 50,
+    "Kit_16_gondola": 48,
+    "Kit_17_gondola": 50
+   }
+  },
+  {
+   "variant": 9,
+   "dir": "store_v09",
+   "bake_seed": 10,
+   "units": 12,
+   "kb": 194.4,
+   "gondola_meshes": {
+    "Kit_06_gondola": 48,
+    "Kit_07_gondola": 52,
+    "Kit_08_gondola": 52,
+    "Kit_09_gondola": 48,
+    "Kit_10_gondola": 50,
+    "Kit_11_gondola": 50,
+    "Kit_12_gondola": 48,
+    "Kit_13_gondola": 50,
+    "Kit_14_gondola": 50,
+    "Kit_15_gondola": 50,
+    "Kit_16_gondola": 44,
+    "Kit_17_gondola": 50
+   }
+  },
+  {
+   "variant": 10,
+   "dir": "store_v10",
+   "bake_seed": 11,
+   "units": 12,
+   "kb": 195.0,
+   "gondola_meshes": {
+    "Kit_06_gondola": 46,
+    "Kit_07_gondola": 52,
+    "Kit_08_gondola": 46,
+    "Kit_09_gondola": 48,
+    "Kit_10_gondola": 50,
+    "Kit_11_gondola": 50,
+    "Kit_12_gondola": 48,
+    "Kit_13_gondola": 50,
+    "Kit_14_gondola": 50,
+    "Kit_15_gondola": 50,
+    "Kit_16_gondola": 48,
+    "Kit_17_gondola": 50
+   }
+  },
+  {
+   "variant": 11,
+   "dir": "store_v11",
+   "bake_seed": 12,
+   "units": 12,
+   "kb": 197.3,
+   "gondola_meshes": {
+    "Kit_06_gondola": 52,
+    "Kit_07_gondola": 52,
+    "Kit_08_gondola": 46,
+    "Kit_09_gondola": 48,
+    "Kit_10_gondola": 50,
+    "Kit_11_gondola": 50,
+    "Kit_12_gondola": 48,
+    "Kit_13_gondola": 50,
+    "Kit_14_gondola": 50,
+    "Kit_15_gondola": 50,
+    "Kit_16_gondola": 48,
+    "Kit_17_gondola": 52
+   }
+  }
+ ]
+}

@@ -121,6 +121,11 @@ def _by_path(name, path):
 
 taskA_seats = _by_path("taskA_seats", f"{_TASKA}/taskA_seats.py")
 taskA_layout = _by_path("taskA_layout", f"{_TASKA}/taskA_layout.py")
+# 진열 셋. 셋 다 isaaclab 을 안 쓰므로 여기서 읽어도 된다 -- `taskA_shelf_stock.attach()` 와
+# `taskA_store_dress.dress()` 만 각자 안에서 isaaclab/pxr 을 부른다.
+taskA_scene_seed = _by_path("taskA_scene_seed", f"{_TASKA}/taskA_scene_seed.py")
+taskA_shelf_stock = _by_path("taskA_shelf_stock", f"{_TASKA}/taskA_shelf_stock.py")
+taskA_store_dress = _by_path("taskA_store_dress", f"{_TASKA}/taskA_store_dress.py")
 
 # 물리 한 걸음. 과제 B 와 같은 값이다.
 #
@@ -176,8 +181,16 @@ def draw_scene(seed, seat_id):
     # 인자가 없다. 그것이 §45 의 설계다: 그 넷은 "좌석 반대편으로 치운다" 는 규칙이 정하고,
     # 규칙이 정하는 것에 난수를 섞으면 로봇이 설 자리가 막힌다.
     all_seats = taskA_seats.seats(stool_seed=seed)
-    n = (seed * 7919) % len(all_seats) if seat_id is None else seat_id
+    # 좌석 사상은 `taskA_scene_seed.py` 한 곳에만 적혀 있다. 예전에는 그 식이 여기
+    # `(seed * 7919) % len(all_seats)` 로도 적혀 있었는데, 같은 식을 두 번째로 적어 두는
+    # 것은 두 값이 갈라질 두 번째 기회다 -- 그리고 이 식이 갈라지면 주최 측 정답 주행과
+    # 참가자 장면이 **조용히** 다른 좌석이 된다.
+    if len(all_seats) != taskA_scene_seed.N_SEATS:
+        raise SystemExit(f"좌석 수가 안 맞는다: 실제 {len(all_seats)}, "
+                         f"taskA_scene_seed.N_SEATS {taskA_scene_seed.N_SEATS}")
+    n = taskA_scene_seed.seat_of(seed) if seat_id is None else seat_id
     seat = all_seats[n]
+    seeds = taskA_scene_seed.spec(seed)
 
     rx, ry, ryaw = taskA_layout.spawn_robot_pose(seat)
     gx, gy, gyaw = taskA_layout.goal_pose()
@@ -186,6 +199,10 @@ def draw_scene(seed, seat_id):
     return {
         "seed": seed,
         "seat_id": int(n),
+        # 진열 씨앗 둘. **자리는 안 바꾸고 물건만 바꾼다** -- 평가표가 "진열대 자체의 배치는
+        # 달라지지 않음" 이라고 못 박고 있어서, 충돌 판정이 보는 발자국은 seed 를 타지 않는다.
+        "store_seed": seeds["store_seed"],      # 곤돌라 12 개
+        "shelf_seed": seeds["shelf_seed"],      # 목표 진열대
         "seat": seat,
         "robot": (float(rx), float(ry), float(ryaw)),
         # 바구니는 탁상 위에 놓이고, 긴 면이 로봇을 향하도록 좌석 각도만큼 돌아간다.
@@ -226,6 +243,21 @@ def print_scene(scene):
           f"{taskA_layout.BASKET_SIZE[1]:.3f} x {taskA_layout.BASKET_SIZE[2]:.3f} m")
     print(f"    탁상      중심 ({tx:+.3f}, {ty:+.3f})  반지름 {g['table_radius']:.4f}  "
           f"상판 {g['table_top_z']:.4f}")
+
+    print("\n  진열 -- 자리는 그대로고 물건만 이 seed 의 것으로 바뀐다")
+    try:
+        items = taskA_shelf_stock.stock(scene["shelf_seed"])
+        gaps = taskA_shelf_stock.gaps(scene["shelf_seed"])
+        print(f"    목표 진열대  씨앗 {scene['shelf_seed']}  상품 {len(items)}개, "
+              f"빈 칸 {len(gaps)}곳 {gaps}")
+    except SystemExit as exc:
+        # 배포 이미지 밖에서 돌리면 과제 B 모듈이 없다. 장면의 나머지는 멀쩡하므로 멈추지
+        # 않되, 조용히 넘어가지도 않는다.
+        print(f"    목표 진열대  ! {exc}")
+    d = taskA_store_dress.pick(scene["store_seed"])
+    print(f"    기타 진열대  씨앗 {scene['store_seed']}  "
+          + (f"곤돌라 12개 -> {os.path.basename(d)}" if d else
+             "! 구워 둔 진열이 없다 (매장 USD 의 기본 진열로 간다)"))
 
     print("\n  가져갈 곳 -- 목적지 진열대와 그 옆 책상")
     print(f"    도착 자리 ({gx:+.3f}, {gy:+.3f})  yaw {math.degrees(gyaw):+.1f} 도")
@@ -269,7 +301,34 @@ def scene_json(scene):
                  "top_z": taskA_layout.desk_top_z(),
                  "size": list(taskA_layout.DESK_SIZE)},
         "drive_straight_m": round(scene["drive_m"], 4),
+        # 진열. **이 파일은 Isaac 을 띄우기 전에 쓰이므로 여기 적히는 것은 "세우라고 시킨
+        # 자리" 이지 "내려앉은 뒤의 자리" 가 아니다.** 상품은 중력이 켜진 강체라 몇 mm
+        # 내려앉는다. 채점은 상품을 보지 않으므로 문제가 되지 않지만, 적어 두지 않으면
+        # 나중에 이 값을 실측과 비교하다가 틀린 결론을 낸다.
+        "products": _products_json(scene),
     }
+
+
+def _products_json(scene):
+    """장면 JSON 의 진열 항목. 순수 산술 -- Isaac 없이 나온다."""
+    out = {
+        "note": "자리는 seed 를 타지 않는다. 바뀌는 것은 선반에 선 물건뿐이다",
+        "target_shelf": {"seed": scene["shelf_seed"], "fixture": taskA_shelf_stock.SHELF_NAME},
+        "other_shelves": {"seed": scene["store_seed"], "kind": "gondola"},
+    }
+    try:
+        items = taskA_shelf_stock.stock(scene["shelf_seed"])
+        out["target_shelf"]["count"] = len(items)
+        out["target_shelf"]["gaps"] = [list(g) for g in taskA_shelf_stock.gaps(scene["shelf_seed"])]
+        out["target_shelf"]["items"] = [
+            {"prim": prim, "product": name, "pos": [round(v, 5) for v in pos]}
+            for prim, name, pos, _q in items]
+    except SystemExit as exc:
+        out["target_shelf"]["error"] = str(exc)
+    d = taskA_store_dress.pick(scene["store_seed"])
+    out["other_shelves"]["variant"] = os.path.basename(d) if d else None
+    out["other_shelves"]["variants_available"] = len(taskA_store_dress.variants())
+    return out
 
 
 # --check 는 여기서 끝난다. Isaac Sim 을 띄우지 않는다.
@@ -286,6 +345,28 @@ if args_cli.check:
               f"로봇 ({x:7.3f}, {y:7.3f}) yaw {math.degrees(yaw):+7.1f}  "
               f"목적지까지 {math.hypot(x - gx, y - gy):6.3f} m")
     problems = taskA_seats.check(store_x=taskA_layout.STORE_X, store_y=taskA_layout.STORE_Y)
+
+    # 진열도 여기서 본다. `stock()`/`gaps()`/`pick()` 은 순수 산술이라 Isaac 없이 돈다 --
+    # 진열이 비는 것은 시뮬레이터 60 초를 치르기 전에 알 수 있는 종류의 문제다.
+    sp = taskA_scene_seed.spec(args_cli.seed)
+    print(f"\n  진열 -- seed {args_cli.seed}")
+    try:
+        items = taskA_shelf_stock.stock(sp["shelf_seed"])
+        print(f"    목표 진열대  씨앗 {sp['shelf_seed']}  상품 {len(items)}개, "
+              f"빈 칸 {taskA_shelf_stock.gaps(sp['shelf_seed'])}")
+        if not items:
+            problems = problems + ["목표 진열대에 세울 상품이 하나도 없다"]
+    except SystemExit as exc:
+        print(f"    목표 진열대  ! {exc}")
+        problems = problems + ["목표 진열대 진열 코드가 과제 B 모듈을 못 찾는다"]
+    vs = taskA_store_dress.variants()
+    d = taskA_store_dress.pick(sp["store_seed"])
+    if d:
+        print(f"    기타 진열대  씨앗 {sp['store_seed']}  변주 {len(vs)}벌 중 "
+              f"{os.path.basename(d)}")
+    else:
+        print("    기타 진열대  ! 구워 둔 진열이 없다 (scripts/taskA/stores/)")
+        problems = problems + ["구워 둔 기타 진열대 진열이 없다"]
 
     # 매장 USD 확인은 **판정을 찍기 전에** 한다. 뒤에 두면 USD 가 없을 때 "판정: 문제 없음"
     # 을 찍고 나서 오류가 따라오고 종료 코드만 조용히 1 이 된다 -- 판정 한 줄만 보는 사람은
@@ -422,6 +503,20 @@ class World(InteractiveSceneCfg):
                 collision_props=sim_utils.CollisionPropertiesCfg()),
             init_state=AssetBaseCfg.InitialStateCfg(pos=SCENE["desk"], rot=(1.0, 0.0, 0.0, 0.0)))
 
+        # 목표 진열대에 상품을 세운다. 상품마다 `RigidObjectCfg` 를 단다 -- `InteractiveScene`
+        # 이 `cfg.__dict__` 를 훑으므로 `setattr` 은 필드로 선언한 것과 같고, 바구니·책상을
+        # 바로 위에서 `self.` 로 다는 것과 같은 방식이다. 상품은 중력이 켜진 강체라 선반
+        # 위에 내려앉는다.
+        #
+        # 이것이 없으면 목표 진열대가 **텅 빈 채로** 렌더된다. 매장 USD 는 곤돌라와 냉장고
+        # 진열은 실어 오지만 그 진열대는 비워 두기 때문이다 -- 그 진열대는 과제 B 가 채우는
+        # 대상이고, 과제 A 에서는 도착점의 표지다.
+        n = taskA_shelf_stock.attach(self, SCENE["shelf_seed"],
+                                     log=lambda *a: print("[i]", *a, flush=True))
+        if n <= 0:
+            raise SystemExit("목표 진열대에 상품을 하나도 못 세웠다 -- 진열이 비면 "
+                             "USD 는 오류 없이 열리고 진열대만 텅 빈다. 조용히 넘기지 않는다.")
+
 
 def main():
     sim = sim_utils.SimulationContext(
@@ -434,6 +529,13 @@ def main():
     # 않는다 -- 2026-08-12 실측: 스툴 열둘에 최대 1.10 m 이동을 써 넣었고 하나도 움직이지
     # 않았다. 그래서 콜라이더도 스툴도 여기서 끝낸다.
     stage = omni.usd.get_context().get_stage()
+
+    # **`harden()` 앞이어야 한다.** 진열을 걸면 곤돌라 프림의 참조가 통째로 갈린다. harden 을
+    # 먼저 하면 콜라이더 설정이 **이미 없어진 프림**에 붙고, 그러면 로봇이 진열대를 뚫고
+    # 지나가는데 발자국을 비교하는 충돌 판정은 그것을 알아채지 못한다.
+    taskA_store_dress.dress(stage, SCENE["store_seed"],
+                            log=lambda *a: print("  ", *a, flush=True))
+
     taskA_colliders.harden(stage, log=lambda *a: None)
     # draw_scene() 과 **같은 stool_seed** 여야 한다. 여기서 다른 값을 쓰면 stools.place() 가
     # 놓는 자리와 SCENE 이 기록한 자리가 어긋나고, --scene-json 이 거짓말을 하게 된다.
