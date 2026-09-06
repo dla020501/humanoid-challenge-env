@@ -47,9 +47,16 @@ from isaaclab.sim.utils import bind_physics_material, clone, make_uninstanceable
 
 from cyclo_lab.assets.robots import CYCLO_LAB_ASSETS_DATA_DIR
 
+# 로봇 USD -- 배포 이미지는 data/robot/ffw_sg2.usd, 개발 체크아웃은 data/robots/FFW/FFW_SG2.usd.
+# 공용 FFW_SG2.py 는 빌드가 이 줄을 고쳐 쓰지만 이 사본은 그 패치를 거치지 않으므로 둘 다 본다.
+_ROBOT_USD = next((p for p in (f"{CYCLO_LAB_ASSETS_DATA_DIR}/robot/ffw_sg2.usd",
+                              f"{CYCLO_LAB_ASSETS_DATA_DIR}/robots/FFW/FFW_SG2.usd")
+                   if __import__("os").path.isfile(p)),
+                  f"{CYCLO_LAB_ASSETS_DATA_DIR}/robots/FFW/FFW_SG2.usd")
+
 FFW_SG2_CFG = ArticulationCfg(
     spawn=UsdFileCfg(
-        usd_path=f"{CYCLO_LAB_ASSETS_DATA_DIR}/robots/FFW/FFW_SG2.usd",
+        usd_path=_ROBOT_USD,
         rigid_props=RigidBodyPropertiesCfg(
             disable_gravity=True,
             max_depenetration_velocity=5.0,
