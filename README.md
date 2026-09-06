@@ -7,6 +7,10 @@
 > **공식 채점은 본 저장소(로컬 환경)가 아닌 주최 측 평가 서버에서 진행됩니다.**  
 > **Humanoid Challenge Repo 목적:**  공식 채점 제출 기능이 포함되어 있지 않으며, 오직 참가자의 알고리즘 개발 및 사전 테스트 용도로만 사용됩니다.
 
+> **📦 학습 데이터 공개**  
+> 주최 측이 수집한 학습 데이터는 Hugging Face 에 있습니다:
+> **https://huggingface.co/datasets/SSU-RealityLab/2026CS-Store-Challenge**
+
 ## 세 과제
 
 | | Task | 하는 일 | 로봇 |
