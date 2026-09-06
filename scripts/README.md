@@ -10,8 +10,8 @@
 | `task_b_replay.py` | **과제 B 한 판 전부**를 처음부터 끝까지 틀어 줍니다 |
 | `task_c_demo.py` | **과제 C 의 시작 장면**을 하나 만들어 띄웁니다 |
 | `taskA/` | 과제 A 의 **장면 정의 모듈과 실측값**. 위 데모가 읽습니다 |
+| `taskB/` | 과제 B 의 **채점기**(`taskb_score.py`)와 `task_b_replay.py` 가 트는 **시연 기록 일곱 판**(`demos/`, 2.4 MB) |
 | `taskC/` | 과제 C 의 **장면 정의 모듈** — 상품 8 종, 계산대 위 배치 규칙, 검사. 위 데모가 읽습니다 |
-| `demos/` | `task_b_replay.py` 가 트는 시연 기록 일곱 판 (2.4 MB) |
 
 ### 코드는 여기, 에셋은 이미지
 
@@ -457,7 +457,7 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
 * 상품이 바닥·탁자·상자에 떨어져 3초 멈추면 **그 순간 채점이 끝나고** 그 뒤는 보지 않습니다.
   다시 주워 놓아도 점수가 없습니다.
 
-`taskb_score.py` 는 혼자서도 돕니다 -- `python3 taskb_score.py demos/demo_00.npz` 가 같은 표를
+`taskb_score.py` 는 혼자서도 돕니다 -- `python3 taskB/taskb_score.py taskB/demos/demo_00.npz` 가 같은 표를
 찍습니다 (Isaac 없이, numpy 만).
 
 ### 옵션

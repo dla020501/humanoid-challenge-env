@@ -52,7 +52,7 @@ import threading as _threading
 
 from isaaclab.app import AppLauncher
 
-DEMO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demos")
+DEMO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "taskB", "demos")
 
 parser = argparse.ArgumentParser(description="과제 B 한 판을 처음부터 끝까지 튼다.")
 parser.add_argument("--seed", type=int, default=0,
@@ -173,9 +173,9 @@ print(f"[i] 진열대 상품 {len(SHELF_ITEMS)} 개 · 상자 상품 {len(CRATE_
       f"{args_cli.substeps} 배로 채워 {args_cli.hz:.0f} Hz 로 그린다\n", flush=True)
 
 # ---- 채점 -- 평가표(Task-B 시트)대로. 재생하기 전에 이 기록을 통째로 채점해 두고, 재생 중 그 프레임이 오면
-# 알린다. 채점기는 옆의 taskb_score.py 이고 기록(npz)만 읽으므로 화면과 무관하게 같은 점수가 나온다.
+# 알린다. 채점기는 taskB/taskb_score.py 이고 기록(npz)만 읽으므로 화면과 무관하게 같은 점수가 나온다.
 taskb_score = _by_path("taskb_score", os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                                   "taskb_score.py"))
+                                                   "taskB", "taskb_score.py"))
 SCORED = next((r for r in taskb_score.score_npz(DEMO) if "points" in r), None)
 RECORD_HZ = float(META.get("record_hz", 10.0))
 EVENTS = {}       # 프레임 -> [(항목 문구, 점수)] -- [한 번이라도] 항목이 처음 참이 된 프레임

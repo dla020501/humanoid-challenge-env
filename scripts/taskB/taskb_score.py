@@ -14,7 +14,7 @@
 # 채점 로직(ProductScorer)은 Isaac 을 모른다 -- numpy 와 기하 상수만 쓴다. 그래서 입구가 둘이다:
 #
 #   score_npz(path)      state npz(task_b_episode.py 가 쓰는 것, humanoid-challenge-env 의
-#                        demos/demo_*.npz 도 같은 형식)를 읽어 프레임을 먹인다. 접촉력은 없지만
+#                        taskB/demos/demo_*.npz 도 같은 형식)를 읽어 프레임을 먹인다. 접촉력은 없지만
 #                        B6 는 상품이 상자 안에서 움직였는가(또는 들렸는가)로 재서 30점 만점이다.
 #   ProductScorer 직접   판이 도는 중에 프레임마다 .update() 를 부르고, 놓은 뒤 3초에 .finish().
 #                        접촉 센서 값(contact_N)을 주면 B6 는 그것으로도 참이 된다.
