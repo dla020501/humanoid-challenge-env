@@ -32,7 +32,7 @@ scripts/taskA/
 **읽어 보셔도 됩니다.** 여러분의 정책이 마주할 장면이 정확히 어떻게 정해지는지가 그 안에
 전부 적혀 있고, `git pull` 로 갱신됩니다.
 
-**에셋은 배포 이미지에서 옵니다** — 매장 USD 184 MB, 로봇, 집기. 저장소에 둘 크기가 아니고,
+**에셋은 배포 이미지에서 옵니다** — 매장 USD 200 MB, 로봇, 집기. 저장소에 둘 크기가 아니고,
 매장 USD 는 참조 94 개를 상대경로로 물고 있어 통째로 옮겨야 합니다. 그래서 이 데모는
 **저장소와 이미지가 둘 다 있어야** 돕니다. 이미지 주소는 `docker/.env` 의 `CHALLENGE_IMAGE`
 입니다.
@@ -361,6 +361,7 @@ Isaac Sim 없이 numpy 만으로 돕니다. 채점이 보는 것이 전부 **자
 때문입니다.
 
 ```bash
+# 호스트 PC 에서 실행합니다 (numpy 필요). 컨테이너 안에서는 python3 대신 ${ISAACLAB_PATH}/_isaac_sim/python.sh 를 쓰세요.
 python3 scripts/taskA/scorer/taska_score.py scripts/taskA/demos/demo_00.npz
 python3 scripts/taskA/scorer/taska_score.py scripts/taskA/demos/demo_*.npz   # 합계까지
 ```
@@ -655,7 +656,7 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
   판이 도는 내내 보고 처음 참이 된 순간에 알립니다. 뒤에 무슨 일이 생겨도 뺏지 않습니다.
 * **놓은 뒤 3초** 항목(떨어뜨리지 않았는가 · 목표 층 · 어느 칸 · 서 있는가 · 방향 · 앞줄 · 멈춤 ·
   상자 제자리 · 다른 상품 그대로)은 잡고 있던 손의 gripper 가 열린 프레임 + 3초에 한 번 봅니다.
-* 상품이 바닥·탁자·상자에 떨어져 3초 멈추면 **그 순간 채점이 끝나고** 그 뒤는 보지 않습니다.
+* 상품이 바닥에 떨어지면 **그 즉시 채점이 끝나고** 그 뒤는 보지 않습니다.
   다시 주워 놓아도 점수가 없습니다.
 
 `taskb_score.py` 는 혼자서도 돕니다 -- `python3 taskB/taskb_score.py taskB/demos/demo_00.npz` 가 같은 표를
@@ -908,14 +909,14 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
 
 | `--seed` | 상품 | 프레임 | 길이 |
 |---:|---|---:|---:|
-| 0 | 프링글스 오리지널 (소) `pringles_original_small` | 3,099 | 103 초 |
-| 1 | 프링글스 사워크림 (소) `pringles_sourcream_small` | 2,849 | 95 초 |
-| 2 | 오뚜기 컵누들 불닭 `ottogi_cupnoodle_buldak` | 1,928 | 64 초 |
-| 3 | 예감 오리지널 `yegam_original` | 1,983 | 66 초 |
-| 4 | 삼양 불닭 컵 `samyang_buldak_cup` | 2,703 | 90 초 |
-| 5 | 칠성사이다 캔 `chilsung_cider` | 2,731 | 91 초 |
-| 6 | 코카콜라 제로 캔 `cocacola_zero` | 2,097 | 70 초 |
-| 7 | 롯데샌드 `lotte_sand` | 2,268 | 76 초 |
+| 0 | 칠성사이다 캔 `chilsung_cider` | 2,731 | 91 초 |
+| 1 | 코카콜라 제로 캔 `cocacola_zero` | 2,097 | 70 초 |
+| 2 | 롯데샌드 `lotte_sand` | 2,268 | 76 초 |
+| 3 | 오뚜기 컵누들 불닭 `ottogi_cupnoodle_buldak` | 1,928 | 64 초 |
+| 4 | 프링글스 오리지널 (소) `pringles_original_small` | 3,099 | 103 초 |
+| 5 | 프링글스 사워크림 (소) `pringles_sourcream_small` | 2,849 | 95 초 |
+| 6 | 삼양 불닭 컵 `samyang_buldak_cup` | 2,703 | 90 초 |
+| 7 | 예감 오리지널 `yegam_original` | 1,983 | 66 초 |
 
 ### 이것은 물리 재생입니다
 

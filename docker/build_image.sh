@@ -190,6 +190,8 @@ mv "$HERE/.assets" "$STAGE/source/cyclo_lab/data"
 # 으로 담았으므로 stage 에 남은 원본은 버린다 -- Dockerfile 이 `COPY stage/` 한 줄로 통째로
 # 퍼 담기 때문에, 여기서 지우지 않으면 쓰이지 않는 347 MB 가 이미지에 그대로 들어간다.
 rm -rf "$STAGE/fixture_kit"
+# 과제 C 원료(taskC/out/qr_usd)도 같다 -- reshape 가 products_c/ 로 담았으므로 stage 에 남기지 않는다.
+rm -rf "$STAGE/taskC"
 
 echo "[4/5] 환경 코드의 경로 상수를 새 자리로"
 python3 "$HERE/patch_paths.py" "$STAGE"

@@ -9,7 +9,7 @@ data/
   ├── robot/                 # 로봇 에셋 (40 MB)
   │   └── ffw_sg2.usd          # 로봇 원본 USD
   │
-  ├── fixtures/              # 매장 집기 에셋 (456 KB)
+  ├── fixtures/              # 매장 집기 에셋 (24 MB)
   │   ├── shelf/shelf.usd      # 진열대 (재질 이미지 4장 포함)
   │   ├── table/table.usd      # 목적지 옆 책상
   │   ├── crate/crate.usd      # 파란 상자
@@ -35,7 +35,7 @@ data/
   │       ├── cocacola_zero.usdc      # 메시 및 재질
   │       └── cocacola_zero.png       # 텍스처 이미지 파일
   │
-  └── store/                 # 과제 A 매장 환경 에셋 (184 MB)
+  └── store/                 # 과제 A 매장 환경 에셋 (200 MB)
       ├── manifest.json        # 매장 내 진열대/냉장고 20종 및 배치 상품 35종 메타데이터
       ├── layout.json          # 매장 전체 레이아웃 좌표 데이터
       └── scene/               # 과제 A 시뮬레이션용 매장 전체 3D 씬 (USD)

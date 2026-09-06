@@ -194,6 +194,7 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
 채점 스크립트(`taska_score.py`)는 Isaac Sim 구동 없이 Numpy 환경만 구성되어 있다면 독립적으로 실행 가능합니다.
 
 ```bash
+# 호스트 PC 에서 실행합니다 (numpy 필요). 컨테이너 안에서는 python3 대신 ${ISAACLAB_PATH}/_isaac_sim/python.sh 를 쓰세요.
 python3 scripts/taskA/scorer/taska_score.py scripts/taskA/demos/demo_00.npz
 ```
 

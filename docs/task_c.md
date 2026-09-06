@@ -123,14 +123,14 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
 
 | `--set single --seed` | 처리 대상 상품 | 프레임 수 | 재생 시간 |
 | --- | --- | --- | --- |
-| **0** | 프링글스 오리지널 (소) (`pringles_original_small`) | 3,099 | 103초 |
-| **1** | 프링글스 사워크림 (소) (`pringles_sourcream_small`) | 2,849 | 95초 |
-| **2** | 오뚜기 컵누들 불닭 (`ottogi_cupnoodle_buldak`) | 1,928 | 64초 |
-| **3** | 예감 오리지널 (`yegam_original`) | 1,983 | 66초 |
-| **4** | 삼양 불닭 컵 (`samyang_buldak_cup`) | 2,703 | 90초 |
-| **5** | 칠성사이다 캔 (`chilsung_cider`) | 2,731 | 91초 |
-| **6** | 코카콜라 제로 캔 (`cocacola_zero`) | 2,097 | 70초 |
-| **7** | 롯데샌드 (`lotte_sand`) | 2,268 | 76초 |
+| **0** | 칠성사이다 캔 (`chilsung_cider`) | 2,731 | 91초 |
+| **1** | 코카콜라 제로 캔 (`cocacola_zero`) | 2,097 | 70초 |
+| **2** | 롯데샌드 (`lotte_sand`) | 2,268 | 76초 |
+| **3** | 오뚜기 컵누들 불닭 (`ottogi_cupnoodle_buldak`) | 1,928 | 64초 |
+| **4** | 프링글스 오리지널 (소) (`pringles_original_small`) | 3,099 | 103초 |
+| **5** | 프링글스 사워크림 (소) (`pringles_sourcream_small`) | 2,849 | 95초 |
+| **6** | 삼양 불닭 컵 (`samyang_buldak_cup`) | 2,703 | 90초 |
+| **7** | 예감 오리지널 (`yegam_original`) | 1,983 | 66초 |
 
 동봉된 기록은 모두 수집 파이프라인에서 성공 판정(QR 인식 1회 이상, 띠 안 배치)을 받은 것입니다. 이 재생기로 상품이 들려 스캐너를 거쳐 띠 안 제자리로 돌아오는 것까지 재현을 확인한 데이터는 `gt` 시드 0과 `single` 시드 6(코카콜라)이며, `single` 시드 5(칠성사이다)는 재생 시 파지가 재현되지 않아 다른 기록으로 교체할 예정입니다.
 
