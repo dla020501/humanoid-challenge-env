@@ -28,6 +28,7 @@
 
 ```text
 docker/       Docker 실행 설정. 환경 구성 코드(cyclo_lab)와 에셋은 배포 이미지 내에 포함되어 있습니다.
+docs/         과제별 상세 가이드 (task_a.md · task_b.md · task_c.md)와 환경 에셋 구조(assets.md).
 scripts/      주최 측 제공 스크립트 모음 (과제별 씬 생성기 및 데모 평가 서버).
               컨테이너의 /workspace/challenge_scripts 경로로 마운트됩니다.
   taskA/          과제 A 관련 파일 (데모 시연 기록 3개 포함, 채점기 포함)
