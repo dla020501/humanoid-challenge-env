@@ -570,9 +570,17 @@ taskC_barcodes.json 의 "pringles_original_small"                     QR 면의 
 시드가 고르는 대신 그 셋을 쓰고, **첫 번째가 집을 상품**입니다. 자리와 자세는 그대로
 시드가 정합니다.
 
+**시드 0 · 1 · 2 는 평가 표본입니다.** 주최 측 정답 궤적(`cstore-challenge` 저장소
+`ship/ground_truth_sample/` 의 세 판)이 만들어진 장면이고, 각각 원 시드 3015066000 ·
+3050039000 · 4156003000 으로 딜한 것입니다. 상품 조합은 수집 파이프라인이 따로 정한
+것이라 시드만으로는 되살릴 수 없어서, 생성기는 0·1·2 를 받으면 딜하지 않고 `taskC/samples/scene_<n>.json`
+에 담긴 정착된 배치를 그대로 세웁니다 -- 정답 궤적과 mm 까지 같은 자리입니다. 다른 장면 파일을 쓰려면
+`--scene-file` 로 주면 됩니다. 그때도 딜과 재딜은 하지 않습니다.
+
 ### 예시
 
 ```bash
+--seed 0                                             # 평가 표본 0: 오뚜기 컵누들 불닭 · 예감 오리지널 · 삼양 불닭 컵 (원 시드 3015066000)
 --seed 1000                                          # 집을 것 small original Pringles tube, 배경 lotte_sand · pringles_sourcream_small
 --seed 1001                                          # 다른 장면
 --products cocacola_zero,lotte_sand,yegam_original   # 코카콜라를 집는다. 자리는 시드가 정한다
@@ -582,8 +590,9 @@ taskC_barcodes.json 의 "pringles_original_small"                     QR 면의 
 ### 옵션
 
 ```bash
---seed N              장면을 정하는 수 (기본 1000)
+--seed N              장면을 정하는 수 (기본 1000). 0·1·2 는 평가 표본
 --products a,b,c      상품 셋을 코드용 이름으로 직접 고른다. 첫 번째가 집을 상품
+--scene-file F        장면 JSON 의 상품 자세를 그대로 세운다 (딜·재딜 없음)
 --seconds S           S 초 동안 세워 두고 끝낸다. 0 이면 창을 닫을 때까지 (--headless 면 1 초)
 --headless            화면 없이 돌린다
 --scene-json FILE     장면 내용을 JSON 으로 저장한다

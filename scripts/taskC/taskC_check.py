@@ -130,9 +130,11 @@ def check_static(assets_root, require_store=True):
                 out.append(f"상품 파일 없음: {pdir.name}/{s}/{f}")
     if not (pdir / "_qr_tiles.json").is_file():
         out.append(f"타일 json 없음: {pdir.name}/_qr_tiles.json")
-    if not (a / "fixtures" / "scanner" / "scanner_taskC.usd").is_file():
+    scanner = P.scanner_usd() if a == P.assets_root() else a / "fixtures" / "scanner" / "scanner_taskC.usd"
+    if not scanner.is_file():
         out.append("스캐너 USD 없음: fixtures/scanner/scanner_taskC.usd")
-    if require_store and not (a / "store" / "scene" / "fixture_kit" / "out" / "store_scene.usd").is_file():
+    store = P.store_usd() if a == P.assets_root() else a / "store" / "scene" / "fixture_kit" / "out" / "store_scene.usd"
+    if require_store and not store.is_file():
         out.append("매장 USD 없음: store/scene/fixture_kit/out/store_scene.usd")
     x0, x1, y0, y1 = L.band_inner()
     if not (x0 < x1 and y0 < y1):

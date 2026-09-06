@@ -66,6 +66,49 @@ def product_usd(slug: str) -> _pathlib.Path:
     return product_dir(slug) / f"{slug}_phys.usd"
 
 
+# 평가 표본 시드. `--seed 0/1/2` 는 cstore-challenge `ship/ground_truth_sample/` 의 세 판(상품 3개
+# 연속 정답 궤적)을 가리킨다. 그 장면은 원 시드(SAMPLE_SEEDS 값)로 만들었지만 상품 조합은 수집
+# 파이프라인이 따로 정한 것이라 시드만으로 되살릴 수 없다. 그래서 정착된 장면 파일을 `samples/` 에
+# 그대로 두고, 표본 시드를 받으면 딜하지 않고 그 파일을 세운다 -- 정답 궤적과 mm 까지 같은 자리다.
+SAMPLE_SEEDS = {0: 3015066000, 1: 3050039000, 2: 4156003000}
+_SAMPLES = _pathlib.Path(__file__).resolve().parent / "samples"
+
+
+def resolve_seed(seed) -> int:
+    """표본 시드(0·1·2)면 원 시드로, 아니면 그대로."""
+    return int(SAMPLE_SEEDS.get(int(seed), int(seed)))
+
+
+def sample_scene_path(seed):
+    """표본 시드면 그 장면 파일 경로, 아니면 None."""
+    if int(seed) in SAMPLE_SEEDS:
+        f = _SAMPLES / f"scene_{int(seed)}.json"
+        if f.is_file():
+            return f
+    return None
+
+
+def scanner_usd() -> _pathlib.Path:
+    """스캐너 USD. 이미지에서는 data/fixtures/scanner/, 개발 체크아웃에서는 props/convstore/fixtures/scanner_taskC/."""
+    cands = (assets_root() / "fixtures" / "scanner" / "scanner_taskC.usd",
+             _pathlib.Path(_CYCLOLAB) / "source" / "cyclo_lab" / "data" / "props" / "convstore"
+             / "fixtures" / "scanner_taskC" / "scanner_taskC.usd")
+    for c in cands:
+        if c.is_file():
+            return c
+    return cands[0]
+
+
+def store_usd() -> _pathlib.Path:
+    """매장 USD. 이미지에서는 data/store/scene/fixture_kit/out/, 개발 체크아웃에서는 fixture_kit/out/."""
+    cands = (assets_root() / "store" / "scene" / "fixture_kit" / "out" / "store_scene.usd",
+             _pathlib.Path(_CYCLOLAB) / "fixture_kit" / "out" / "store_scene.usd")
+    for c in cands:
+        if c.is_file():
+            return c
+    return cands[0]
+
+
 def size_mm(slug: str):
     """(x, y, z) mm -- info.json 의 size. 상품 프레임 축 순서 그대로다."""
     with open(product_dir(slug) / "info.json", encoding="utf-8") as fh:

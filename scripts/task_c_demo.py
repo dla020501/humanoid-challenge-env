@@ -56,7 +56,11 @@ from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser(description="과제 C 의 시작 장면 하나를 띄운다.")
 parser.add_argument("--seed", type=int, default=1000,
-                    help="장면 하나를 정하는 수. 같은 값이면 같은 장면이다.")
+                    help="장면 하나를 정하는 수. 같은 값이면 같은 장면이다. 0·1·2 는 평가 표본"
+                         "(cstore-challenge ship/ground_truth_sample 의 세 판)을 가리킨다.")
+parser.add_argument("--scene-file", default=None, metavar="scene.json",
+                    help="딜하지 않고 이 장면 JSON(taskC_qr_scene_*.json / base_pose_sample 의 scene.json)"
+                         "의 상품 자세 그대로 세운다. 정답 궤적을 재생할 때 쓴다.")
 parser.add_argument("--products", default=None, metavar="a,b,c",
                     help="상품 세 개를 코드용 이름으로 직접 준다(쉼표). 첫 번째가 집을 상품이다. "
                          "기본값은 seed 가 8 종에서 고른다.")
@@ -78,6 +82,7 @@ args_cli = parser.parse_args()
 args_cli.enable_cameras = True        # 로봇이 카메라를 달고 있어 이 깃발 없이는 스폰이 막힌다
 
 import importlib.util as _ilu   # noqa: E402
+import json                     # noqa: E402
 import math                     # noqa: E402
 
 CYCLOLAB = os.environ.get("CYCLOLAB_PATH", "/workspace/cyclo_lab")
@@ -110,8 +115,8 @@ SHOT_WARMUP = 16
 SETTLE_SECONDS = 3.0        # 상품을 스폰한 뒤 물리로 가라앉히는 시간 (qr_scene --settle 기본값)
 WHEEL_RADIUS = L.WHEEL_RADIUS
 
-STORE_USD = str(P.assets_root() / "store" / "scene" / "fixture_kit" / "out" / "store_scene.usd")
-SCANNER_USD = str(P.assets_root() / "fixtures" / "scanner" / "scanner_taskC.usd")
+STORE_USD = str(P.store_usd())
+SCANNER_USD = str(P.scanner_usd())
 
 
 def _by_path(name, path):
@@ -123,9 +128,31 @@ def _by_path(name, path):
 
 
 def draw_deal(seed, products):
-    """이 seed 의 딜. Isaac 없이 정해지는 것 -- 상품 셋과 스폰 자세·자리(로봇 좌표)."""
+    """이 seed 의 딜. Isaac 없이 정해지는 것 -- 상품 셋과 스폰 자세·자리(로봇 좌표).
+
+    0·1·2 는 평가 표본 시드라 딜하지 않고 taskC/samples/scene_<n>.json 을 그대로 세운다.
+    """
+    sample = P.sample_scene_path(seed)
+    if sample is not None and products is None:
+        print(f"[i] 표본 시드 {seed}: 딜하지 않고 {sample.name} 의 정착된 장면을 그대로 세운다 "
+              f"(원 시드 {P.resolve_seed(seed)}, ship/ground_truth_sample 의 그 판)", flush=True)
+        return load_scene_file(sample, seed)
     slugs = D.pick_products(seed, products)
-    return {"seed": seed, "slugs": slugs, "dealt": D.deal(seed, 0, slugs)}
+    return {"seed": seed, "seed_source": seed, "slugs": slugs, "dealt": D.deal(seed, 0, slugs), "fixed": False}
+
+
+def load_scene_file(path, seed):
+    """장면 JSON 의 정착된 상품 자세를 그대로 쓴다. 딜·재딜 없음."""
+    with open(path, encoding="utf-8") as fh:
+        sc = json.load(fh)
+    dealt = [{"slug": p["slug"], "pos": tuple(float(v) for v in p["pos"]),
+              "quat": tuple(float(v) for v in p["quat"])} for p in sc["products"]]
+    for d in dealt:
+        if d["slug"] not in P.PRODUCTS:
+            raise ValueError(f"장면 파일의 상품이 8 종에 없다: {d['slug']}")
+    print(f"[i] 장면 파일 {path} 의 상품 {len(dealt)} 개를 그대로 세운다 (원 시드 {sc.get('seed')})", flush=True)
+    return {"seed": seed, "seed_source": int(sc.get("seed", seed)), "slugs": [d["slug"] for d in dealt],
+            "dealt": dealt, "fixed": True}
 
 
 def print_deal(deal):
@@ -168,8 +195,9 @@ if args_cli.check:
 
 
 try:
-    DEAL = draw_deal(args_cli.seed, args_cli.products)
-except ValueError as e:
+    DEAL = (load_scene_file(args_cli.scene_file, args_cli.seed) if args_cli.scene_file
+            else draw_deal(args_cli.seed, args_cli.products))
+except (ValueError, OSError, KeyError) as e:
     raise SystemExit(str(e))
 print_deal(DEAL)
 
@@ -377,12 +405,18 @@ def main():
     dealt = DEAL["dealt"]
     ok, res = settle_products(dealt)
     attempt = 0
-    while not ok and attempt < L.MAX_REDEAL:
+    while not ok and attempt < L.MAX_REDEAL and not DEAL.get("fixed"):
         attempt += 1
         print(f"[i] 재딜 {attempt}: {', '.join(K.redeal_reason(res)) or '방위/간격'} "
               f"-- 테이프 접촉/뚫림/넘어짐/QR 방위/간격", flush=True)
-        dealt = D.deal(args_cli.seed, attempt, DEAL["slugs"])
+        dealt = D.deal(DEAL["seed_source"], attempt, DEAL["slugs"])
         ok, res = settle_products(dealt)
+    if DEAL.get("fixed"):
+        # 장면 파일은 이미 정착된 자세다. 검사는 참고로만 찍고 실패로 치지 않는다 -- 정답 궤적의 장면은
+        # 수집 파이프라인의 딜 규칙을 통과한 것이고, 정착 뒤 간격이 10 cm 밑으로 좁혀진 경우가 있다.
+        if not ok:
+            print("[i] 장면 파일 그대로 세웠다 -- 위 검사에서 걸린 항목은 참고용 (재딜하지 않는다)", flush=True)
+        ok = True
     if not ok and K.fail_open_ok(res):
         print("[i] 재딜 소진 -- 위반이 비원통 기움뿐이라 수용 (둥근 형상 구제)", flush=True)
         ok = True
