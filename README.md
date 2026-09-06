@@ -8,7 +8,7 @@
 > **Humanoid Challenge Repo의 목적:** 공식 채점 제출 기능은 포함되어 있지 않으며, 오직 참가자의 알고리즘 개발 및 사전 테스트 용도로만 제공됩니다.
 
 > **📦 학습 데이터 공개**  
-> 주최 측이 수집한 학습 데이터는 Hugging Face에서 확인하실 수 있습니다:
+> 주최 측이 수집한 VLA 학습 데이터는 Hugging Face에서 확인하실 수 있습니다:
 > **https://huggingface.co/datasets/SSU-RealityLab/2026CS-Store-Challenge**
 
 > ⚠️ **채점 항목 및 가점 기준은 변경될 수 있습니다.**
