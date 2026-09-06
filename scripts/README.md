@@ -51,6 +51,9 @@ scripts/taskC/
   taskC_report.py       터미널 요약과 --scene-json
   taskC_counter.py      빨간 띠를 그리고, 매장의 정적 스캐너·바구니를 끄고, 계산대 맨 아래 선반판을
                         잘라낸다 (Isaac 안에서만)
+  taskC_ffw_sg2.py      과제 C 의 로봇 -- 학습 데이터를 찍을 때 쓴 FFW-SG2 설정 파일 그대로 (팔 600/30·600/20,
+                        손목 200/3, 리프트 10000/100, 그리퍼 좌 300·우 100, 마찰 2.0/1.8). 공용 FFW_SG2.py 는
+                        과제 A·B 값이라 쓰지 않는다
   samples/              표본 장면 3개 (scene_0/1/2.json) -- --seed 0·1·2 가 세우는 장면
   demos_gt/             정답 궤적 3편 -- 한 판에 상품 3개 연속 (task_c_replay.py --set gt)
   demos/                시연 기록 8편 -- 품목별 1편, 상품 1개 (task_c_replay.py --set single)

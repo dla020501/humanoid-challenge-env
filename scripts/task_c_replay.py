@@ -177,7 +177,8 @@ from isaaclab.scene import InteractiveScene, InteractiveSceneCfg      # noqa: E4
 from isaaclab.sensors import CameraCfg                                # noqa: E402
 from isaaclab.utils import configclass                                # noqa: E402
 
-from cyclo_lab.assets.robots.FFW_SG2 import (                         # noqa: E402
+# 로봇은 과제 C 데이터 수집 판(taskC/taskC_ffw_sg2.py)을 쓴다. 공용 FFW_SG2.py 는 과제 A·B 값이라 다르다.
+from taskC.taskC_ffw_sg2 import (                                     # noqa: E402
     FFW_SG2_MOBILE_CFG, SG2_SWERVE_STEERING_JOINTS, SG2_SWERVE_WHEEL_JOINTS,
 )
 
