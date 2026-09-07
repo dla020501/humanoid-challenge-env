@@ -52,7 +52,9 @@ workspace/    참가자 작업 공간. 컨테이너의 /workspace/user 경로로
 ## 시작하기
 
 ```bash
-git clone git@github.com:kairobahq/humanoid-challenge-env.git
+# MILAB 세팅이 적용된 fork 입니다 (docker/.env 의 EULA 동의, GPU 0,1 지정, privileged 제거).
+# 대회 원본은 https://github.com/kairobahq/humanoid-challenge-env 입니다.
+git clone git@github.com:dla020501/humanoid-challenge-env.git
 cd humanoid-challenge-env
 
 # 1) Isaac Sim 사용 약관(EULA) 동의 — 이 저장소는 docker/.env 에 ACCEPT_EULA=Y 가
