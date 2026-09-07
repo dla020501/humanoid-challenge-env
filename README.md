@@ -71,6 +71,46 @@ docker exec -it challenge_env bash
 
 > `container ... is not running` 에러 발생 시 `docker logs challenge_env` 명령어로 로그를 확인하세요. 대개 1번(ACCEPT_EULA 동의) 단계를 누락한 경우 발생합니다.
 
+### 특정 GPU 만 사용하기 (다중 GPU 환경)
+
+기본 설정은 호스트의 GPU 를 **전부** 컨테이너에 넘깁니다. GPU 가 여러 장인 머신에서 특정 카드만 쓰려면
+`docker/docker-compose.yaml` 의 **두 곳**을 함께 고쳐야 합니다. 한쪽만 고치면 적용되지 않습니다.
+
+1. `environment:` 의 `NVIDIA_VISIBLE_DEVICES` — `all` 대신 쓸 GPU 번호를 적습니다.
+
+   ```yaml
+   # 변경 전
+   - NVIDIA_VISIBLE_DEVICES=all
+   # 변경 후 (0번 GPU 만 / 여러 장이면 쉼표로: 0,2)
+   - NVIDIA_VISIBLE_DEVICES=0
+   ```
+
+2. 맨 아래 `deploy.resources.reservations.devices:` 의 `count` — `device_ids` 로 **바꿔 씁니다.**
+   compose 규격상 `count` 와 `device_ids` 는 함께 쓸 수 없으므로 `count` 줄은 지워야 합니다.
+
+   ```yaml
+   # 변경 전
+   deploy:
+     resources:
+       reservations:
+         devices:
+           - driver: nvidia
+             count: all
+             capabilities: [ gpu ]
+
+   # 변경 후 (0번 GPU 만 / 여러 장이면 device_ids: [ "0", "2" ])
+   deploy:
+     resources:
+       reservations:
+         devices:
+           - driver: nvidia
+             device_ids: [ "0" ]
+             capabilities: [ gpu ]
+   ```
+
+GPU 번호는 호스트에서 `nvidia-smi -L` 로 확인합니다. 수정 후에는 `docker compose up -d --force-recreate` 로
+컨테이너를 다시 만들어야 반영되며, 컨테이너 안에서 `nvidia-smi` 를 실행해 지정한 카드만 보이는지 확인하세요.
+
 ### 스크립트 실행 시 3가지 주의사항
 
 ```bash
