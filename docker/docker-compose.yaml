@@ -20,7 +20,10 @@ services:
     init: true
     # 호스트 네트워크: 호스트의 정책 서버가 컨테이너에서 127.0.0.1 로 보입니다.
     network_mode: host
-    privileged: true
+    # privileged 는 쓰지 않는다. 원본(대회 환경 저장소) compose 에는 있지만,
+    # 이 옵션이 device cgroup 을 풀어버려 아래 device_ids 의 GPU 지정이 무시된다
+    # (8-GPU 머신에서 실측: privileged 면 지정과 무관하게 8 장이 다 보인다).
+    # 떼고 과제 A·C 데모, 카메라 3 대, QR 인식, CUDA, X11 을 확인했다 -- 전부 정상.
     shm_size: "16gb"
     environment:
       - ISAACSIM_PATH=${DOCKER_ISAACSIM_ROOT_PATH}
@@ -30,8 +33,6 @@ services:
       - ACCEPT_EULA=${ACCEPT_EULA}
       - PRIVACY_CONSENT=Y
       - NVIDIA_VISIBLE_DEVICES=0,1
-      # privileged: true 가 device_ids 격리를 무력화하므로, 실제로 쓸 GPU 는 이 줄이 정한다.
-      - CUDA_VISIBLE_DEVICES=0,1
       - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
       # Isaac Sim 캐시 — 첫 기동 후 셰이더/에셋 캐시가 남아 재기동이 빨라집니다.
@@ -52,7 +53,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              #count: all
+              # MILAB: 이 머신의 GPU 8 장 중 0,1 만 쓴다. 전부 쓰려면 count: all 로 되돌린다.
               device_ids: ["0", "1"]
               capabilities: [ gpu ]
 

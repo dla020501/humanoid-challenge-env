@@ -74,46 +74,48 @@ docker exec -it challenge_env bash
 ### 특정 GPU 만 사용하기 (다중 GPU 환경)
 
 기본 설정은 호스트의 GPU 를 **전부** 컨테이너에 넘깁니다. GPU 가 여러 장인 머신에서 특정 카드만 쓰려면
-`docker/docker-compose.yaml` 의 `environment:` 블록에 **`CUDA_VISIBLE_DEVICES` 한 줄을 추가**하세요.
-이 compose 구성에서 실제로 효력이 있는 것은 이 줄 하나뿐입니다.
+`docker/docker-compose.yaml` 맨 아래 `deploy.resources.reservations.devices:` 의 `count` 를
+`device_ids` 로 **바꿔 씁니다.** compose 규격상 둘은 함께 쓸 수 없으므로 `count` 줄은 지워야 합니다.
 
 ```yaml
-    environment:
-      ...
-      - NVIDIA_VISIBLE_DEVICES=all
-      # 아래 한 줄을 추가 (0번 GPU 만 / 여러 장이면 쉼표로: 0,1)
-      - CUDA_VISIBLE_DEVICES=0
+# 변경 전
+deploy:
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          count: all
+          capabilities: [ gpu ]
+
+# 변경 후 (0번 GPU 만 / 여러 장이면 device_ids: [ "0", "1" ])
+deploy:
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          device_ids: [ "0" ]
+          capabilities: [ gpu ]
+```
+
+같은 파일 `environment:` 의 `NVIDIA_VISIBLE_DEVICES` 도 같은 번호로 맞춰 두면 의도가 분명해집니다
+(`device_ids` 만으로도 동작합니다).
+
+```yaml
+      - NVIDIA_VISIBLE_DEVICES=0
 ```
 
 GPU 번호는 호스트에서 `nvidia-smi -L` 로 확인하고, 수정 후 `docker compose up -d --force-recreate` 로
-컨테이너를 다시 만들어야 반영됩니다. 잘 적용됐는지는 다음으로 확인하세요 (지정한 장수가 나와야 합니다).
+컨테이너를 다시 만들어야 반영됩니다. 확인은 컨테이너 안에서 `nvidia-smi -L` — 지정한 카드만 나와야 합니다.
 
 ```bash
-docker exec challenge_env \
-    /workspace/cyclo_lab/third_party/IsaacLab/_isaac_sim/python.sh \
-    -c "import torch; print(torch.cuda.device_count())"
+docker exec challenge_env nvidia-smi -L
 ```
 
-> ⚠️ **컨테이너 안 `nvidia-smi` 로는 확인되지 않습니다.** 여기에는 호스트의 GPU 가 항상 전부 보이며,
-> 이는 정상입니다. 아래 설명대로 `privileged: true` 때문입니다.
-
-#### 왜 `NVIDIA_VISIBLE_DEVICES` / `device_ids` 로는 안 되는가
-
-일반적인 GPU 제한 방법은 `NVIDIA_VISIBLE_DEVICES` 를 바꾸거나, 맨 아래
-`deploy.resources.reservations.devices:` 의 `count: all` 을 `device_ids: [ "0" ]` 로 바꾸는 것입니다.
-**이 compose 에서는 둘 다 효력이 없습니다.** `privileged: true` 로 구동되는데, 이 옵션이 호스트의
-`/dev` 를 통째로 넣고 device cgroup 제한을 풀어버려서 NVIDIA 컨테이너 런타임의 격리가 무력화되기
-때문입니다. 8-GPU 머신에서 실측한 결과입니다.
-
-| 설정 | `privileged: true` (기본) | `privileged` 제거 시 |
-|---|---|---|
-| `CUDA_VISIBLE_DEVICES=0,1` | **2장** ✅ | 2장 ✅ |
-| `device_ids: [ "0", "1" ]` | 8장 ❌ | 2장 ✅ |
-| `NVIDIA_VISIBLE_DEVICES=0,1` | 8장 ❌ | 2장 ✅ |
-
-따라서 `privileged: true` 를 유지하는 한 `CUDA_VISIBLE_DEVICES` 를 쓰십시오. 나머지 두 곳은 굳이
-건드릴 필요가 없고, 맞춰 두더라도 무해합니다. (참고: `count` 와 `device_ids` 는 compose 규격상 함께
-쓸 수 없으므로, `device_ids` 를 쓸 경우 `count` 줄은 지워야 합니다.)
+> ⚠️ **`privileged: true` 를 추가하면 위 설정이 무시됩니다.** 이 옵션은 device cgroup 제한을 풀어버려
+> 호스트의 GPU 를 전부 컨테이너에 넣습니다. 8-GPU 머신 실측 결과, `device_ids: [ "0", "1" ]` 을 주어도
+> `privileged` 가 켜져 있으면 `nvidia-smi` 와 `torch.cuda.device_count()` 모두 **8** 이 나왔습니다.
+> 이 저장소의 compose 가 `privileged` 를 쓰지 않는 이유입니다. 부득이 켜야 한다면 GPU 제한은
+> `CUDA_VISIBLE_DEVICES` 로만 가능합니다 (단 컨테이너 안 `nvidia-smi` 에는 여전히 전부 보입니다).
 
 ### 스크립트 실행 시 3가지 주의사항
 
