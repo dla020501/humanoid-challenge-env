@@ -100,8 +100,9 @@ THRESHOLD = {
                              #     실패한 pick 은 로컬 표본에 없어 「끌린 것」쪽 분포는 못 쟀다
     "near_shelf_mm": 300.0,  # B9  ※ 실측: passed 3,133판 x 최대 최소 0.513, refused 164판 중 160판도 넘음.
                              #     사다리의 첫 칸이라 후한 것이 맞다
-    "upright_deg": 90.0,     # B15 뒷줄 같은 상품의 z 축과 같은 쪽을 보는가 -- 각도 < 90° (사용자 2026-09-03: "z방향이 같으면").
-                             #     ※ 시트의 15° 는 놓은 539판 중 87 만 통과했고, 90° 선은 85~95° 에 263판이 몰린 자리다
+    "upright_deg": 45.0,     # B15 뒷줄 같은 상품의 z 축과 같은 쪽을 보는가 -- 각도 < 45° (사용자 2026-09-07).
+                             #     ※ 실측 passed 3,116판의 분포는 세 덩어리다: 0~10° 531 · 70~100° 2,051(누움) · 170~180° 524(거꾸로),
+                             #     40~70° 사이는 3판. 09-03 의 90° 선은 누운 덩어리 한가운데라 80~90° 의 1,123판이 「서 있음」이 됐다
                              #     시트 "눕혀서 진열하는 상품은 누워 있는 것이 통과" (oreo_strawberry, taskb_orientation.json
                              #     upright: false) 는 따로 안 둔다 -- 뒷줄 z 축, 없으면 진열 자세(stock_orientation)와 견주므로
                              #     누운 진열 자세가 곧 기준이다. 실측: oreo 의 진열 자세 대비 tilt 0.0°
@@ -109,8 +110,14 @@ THRESHOLD = {
     "still_mm_s": 10.0,      # B18
     "watch_s": 3.0,          # 시트: 놓은 뒤 3초에 판정한다
     "crate_tilt_deg": 45.0,  # B19 ※ 실측: passed 3,133판 중 45° 안 3,127
+    "crate_moved_mm": 20.0,  # B19 파란 상자가 첫 자리에서 xy 로 이만큼 넘게 밀렸으면 0점 (시트·발표 대본 "2 cm 이상 움직이지
+                             #     않았다면", 사용자 2026-09-07). 실측: passed 3,133판 최대 4.9 mm, pick 2,284판 중 넘는 판 9
     "table_moved_mm": 100.0, # 조합 중단: 탁자가 10 cm 넘게 움직이면 그 순간까지의 점수가 최종 (시트 [심사 유의사항])
     "neighbour_deg": 15.0,   # B20 시트의 「서 있는가」 자(15°)를 진열 자세 기준으로 그대로 쓴다
+    "neighbour_moved_mm": 5.0,  # B20 이웃이 판 안에 이만큼 넘게 밀렸으면 「건드려 움직였다」 (사용자 2026-09-07: "로봇에 의해
+                             #     상품이 움직이면 가점은 없다"). 실측 passed 3,133판: 손 안 댄 이웃의 흔들림 상위 1 % 가 0.1 mm,
+                             #     5 mm 넘게 밀린 판 5(5.1~15.2 mm). 2 mm 로 두면 로봇이 1 m 떨어져 있을 때 물리가 한 번 튄
+                             #     2.0~2.3 mm 짜리(demo_05 의 3층 말차 송이 등 셋)까지 걸려서 5 mm 다 (사용자 2026-09-07)
 }
 
 # ---- 시트 -- id · Sub Task · 배점 · 판정 종류 · 평가 항목(B열 그대로) -------------------------
@@ -234,11 +241,15 @@ class ProductScorer:
         self.display_quat = tuple(float(v) for v in taskB_restock.stock_orientation(name)[1])
         self.size = tuple(float(v) for v in taskB_restock.product(name)["size"])
         self.neighbours = dict(neighbours)   # {열쇠: (진열 자세 quat, size)}
+        self.neighbours0 = {}                # {열쇠: 첫 프레임 pos} -- B20 밀림은 여기서부터 잰다
+        self.neighbour_moved_mm = {}         # {열쇠: 판 안 최대 xy 이동 mm}
         self.back_key = back_key
         self.ever = {r[0]: None for r in RUBRIC if r[3] == "ever"}   # 처음 참이 된 프레임 번호
         self.z0 = None
         self.rim = None
         self.in_crate0 = None
+        self.crate0 = None
+        self.crate_moved_max_mm = 0.0
         self.lift_max_mm = 0.0
         self.moved_max_mm = 0.0
         self.moved_at_touch_mm = None
@@ -273,6 +284,18 @@ class ProductScorer:
             # 테두리 높이는 상수가 아니라 상자가 탁자에 자리 잡은 뒤의 z 에서 잰다 (시트 B8 ※).
             self.rim = float(crate_pos[2]) + CRATE_H
             self.table0 = None if table_pos is None else np.asarray(table_pos, dtype=float)
+            self.crate0 = np.asarray(crate_pos, dtype=float)
+            self.crate_moved_max_mm = 0.0
+            self.neighbours0 = {k: np.asarray(shelf[k][0], dtype=float) for k in self.neighbours if k in shelf}
+        # B19 -- 상자가 첫 자리에서 xy 로 얼마나 밀렸나, 판 안 최대
+        self.crate_moved_max_mm = max(self.crate_moved_max_mm,
+                                      float(np.linalg.norm(np.asarray(crate_pos, dtype=float)[:2] - self.crate0[:2])) * 1000.0)
+        # B20 -- 이웃이 첫 자리에서 xy 로 얼마나 밀렸나, 판 안 최대 (넘어지지 않아도 건드려 움직였으면 0점)
+        for k, p0 in self.neighbours0.items():
+            if k in shelf:
+                d = float(np.linalg.norm(np.asarray(shelf[k][0], dtype=float)[:2] - p0[:2])) * 1000.0
+                if d > self.neighbour_moved_mm.get(k, 0.0):
+                    self.neighbour_moved_mm[k] = d
         self.lift_max_mm = max(self.lift_max_mm, (float(p[2]) - self.z0) * 1000.0)
         moved_mm = float(np.linalg.norm(in_crate - self.in_crate0)) * 1000.0
         self.moved_max_mm = max(self.moved_max_mm, moved_mm)
@@ -350,14 +373,14 @@ class ProductScorer:
         m["rim_z"] = round(self.rim, 4)
         m["table_moved_mm"] = None if self.table_moved_mm is None else round(self.table_moved_mm, 1)
 
-        # B12 -- 시트: 떨어뜨려서 끝난 것이 아니면 통과. 「떨어졌다」는 손에서 벗어나 바닥·탁자·상자에 떨어진
-        # 것이고 선반 판 위에 내려놓은 것은 아니다. 그래서 끝 프레임에 ① 밑면이 어느 선반 판에 닿아 있으면 놓은
-        # 것, ② 아니면서 상자 테두리보다 낮으면 떨어진 것(바닥 · 탁자 위 · 상자 속은 전부 테두리 아래다), ③ 판에
-        # 안 닿았는데 테두리 위면 아직 손에 든 채 끝난 것(시간 초과 · refused)이다. ③ 은 떨어뜨린 것이 아니므로
-        # 시트대로 통과다. 새 문턱값 없이 이미 잰 테두리 높이 하나로 가른다.
+        # B12 -- 시트: 떨어뜨려서 끝난 것이 아니면 통과. 「떨어뜨렸다」는 **편의점 바닥**에 떨어진 것뿐이다 (사용자
+        # 2026-09-07: 상자 속으로 떨어졌다가 다시 집어 진열하면 허용). 그래서 바닥 감지(update 의 finish("dropped"))가
+        # 울린 판만 떨어진 것이고, 끝 프레임에 밑면이 어느 선반 판에 닿아 있으면 놓은 것, 둘 다 아니면 든 채 끝난
+        # 것(시간 초과 · refused · 상자 속)이다. ~~테두리보다 낮으면 떨어진 것~~ 은 09-07 에 뺐다 -- 상자 위치가 이상한
+        # 판 6개에서 손에 든 상품(z 0.87~0.92)이 떨어진 것으로 찍혔다.
         lay, m["under_mm"] = board_under(p, q, self.size)
         placed = lay is not None
-        dropped = (not placed) and float(p[2]) < self.rim
+        dropped = reason == "dropped"
         m["end_reason"] = "placed" if placed else ("dropped" if dropped else "in_hand")
         m["end_by"] = reason
         pts["B12"] = 0 if dropped else POINTS["B12"]
@@ -412,14 +435,18 @@ class ProductScorer:
             # B18 -- 그 순간의 속도
             pts["B18"] = POINTS["B18"] if speed is not None and float(speed) < THRESHOLD["still_mm_s"] else 0
 
-        # B19 -- 상자 중심이 탁자 윗면 위 ∧ 바닥면이 수직에서 45° 안. origin 이 바닥이라 중심 = z + H/2
+        # B19 -- 상자 중심이 탁자 윗면 위 ∧ 바닥면이 수직에서 45° 안 ∧ 첫 자리에서 crate_moved_mm 넘게 안 밀림.
+        # origin 이 바닥이라 중심 = z + H/2
         crate_centre_z = float(cp[2]) + CRATE_H / 2.0
         m["crate_tilt_deg"] = round(math.degrees(math.acos(max(-1.0, min(1.0, qrot(cq, (0.0, 0.0, 1.0))[2])))), 1)
         m["crate_centre_z"] = round(crate_centre_z, 4)
+        m["crate_moved_mm"] = round(self.crate_moved_max_mm, 1)
         pts["B19"] = POINTS["B19"] if (crate_centre_z > TABLE_TOP
-                                       and m["crate_tilt_deg"] < THRESHOLD["crate_tilt_deg"]) else 0
+                                       and m["crate_tilt_deg"] < THRESHOLD["crate_tilt_deg"]
+                                       and self.crate_moved_max_mm <= THRESHOLD["crate_moved_mm"]) else 0
 
-        # B20 -- 원래 진열돼 있던 나머지 상품이 하나도 빠짐없이 ① 선반 판 위 ② 15° 안으로 서 있음
+        # B20 -- 원래 진열돼 있던 나머지 상품이 하나도 빠짐없이 ① 선반 판 위 ② 15° 안으로 서 있음 ③ 판 안에
+        # neighbour_moved_mm 넘게 밀리지 않음 (사용자 2026-09-07: 건드려 움직였으면 0점)
         fallen = []
         for key, (dq, nsize) in self.neighbours.items():
             if key not in shelf:
@@ -430,7 +457,10 @@ class ProductScorer:
                 fallen.append((key, "off_board"))
             elif tilt_deg(nq, dq) >= THRESHOLD["neighbour_deg"]:
                 fallen.append((key, f"tilt {tilt_deg(nq, dq):.0f}"))
+            elif self.neighbour_moved_mm.get(key, 0.0) > THRESHOLD["neighbour_moved_mm"]:
+                fallen.append((key, f"moved {self.neighbour_moved_mm[key]:.1f} mm"))
         m["neighbours_fallen"] = fallen
+        m["neighbour_moved_max_mm"] = round(max(self.neighbour_moved_mm.values()), 1) if self.neighbour_moved_mm else 0.0
         pts["B20"] = POINTS["B20"] if not fallen else 0
 
         got = sum(v for v in pts.values() if v is not None)
@@ -568,7 +598,7 @@ def reasons(r):
         "B16": (f"yaw {m['yaw_deg']}° vs {m['facing_ref']}" if m["yaw_deg"] is not None else "안 서 있음"),
         "B17": f"x {m['x']:.3f} (금 {FRONT_ROW_X:.3f})",
         "B18": f"{m['speed_mm_s']} mm/s" if m["speed_mm_s"] is not None else "속도 없음",
-        "B19": f"tilt {m['crate_tilt_deg']}° 중심 z {m['crate_centre_z']:.3f}",
+        "B19": f"tilt {m['crate_tilt_deg']}° 중심 z {m['crate_centre_z']:.3f} 밀림 {m['crate_moved_mm']:.1f} mm",
         "B20": ("전부 서 있음" if not m["neighbours_fallen"]
                 else " ".join(f"{k}:{w}" for k, w in m["neighbours_fallen"])),
     }
