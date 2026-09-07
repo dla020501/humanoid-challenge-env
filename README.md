@@ -106,8 +106,17 @@ deploy:
 (`device_ids` 만으로도 동작합니다).
 
 ```yaml
+      # 0번 GPU 한 장만
       - NVIDIA_VISIBLE_DEVICES=0
+
+      # 여러 장이면 쉼표로 (이 저장소의 기본값 — 0,1 두 장을 씁니다)
+      - NVIDIA_VISIBLE_DEVICES=0,1
+
+      # 호스트의 GPU 를 전부 (원본 기본값)
+      - NVIDIA_VISIBLE_DEVICES=all
 ```
+
+`device_ids` 도 같은 식으로 여러 장을 적습니다 — `device_ids: [ "0", "1" ]`.
 
 GPU 번호는 호스트에서 `nvidia-smi -L` 로 확인하고, 수정 후 `docker compose up -d --force-recreate` 로
 컨테이너를 다시 만들어야 반영됩니다. 확인은 컨테이너 안에서 `nvidia-smi -L` — 지정한 카드만 나와야 합니다.
