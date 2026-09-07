@@ -52,6 +52,46 @@ import scene_spec as SS
 # 돌아야 하므로 그 모듈을 import 하지 않고 `grasp_geom` 의 상수에서 가져온다.
 TL_BASKET_SIZE = (GG.CRATE_ALONG, GG.CRATE_ACROSS, GG.CRATE_HEIGHT)       # noqa: E402
 
+# 「다시 잡았다」로 셀 최소 시간 (초).
+#
+# 감시창은 **마지막으로 손을 뗀 순간**부터 연다 (사용자 결정 2026-09-07: "놓았다가 다시
+# 들었다가 또 놓는 경우에는 마지막 놓기를 기준으로").  그러려면 「다시 잡음」을 세야 하는데,
+# 접촉 판정은 손가락이 문턱(40 mm)을 스칠 때 한두 프레임 튄다:
+#
+#     튄 것        놓음 놓음 [잡음] 놓음 놓음 놓음        <- 0.1 초.  재파지가 아니다
+#     진짜 재파지   놓음 놓음 [잡음 잡음 잡음 잡음] 놓음   <- 0.4 초.  재파지다
+#
+# 튄 것을 재파지로 세면 감시창이 그만큼 뒤로 밀리고, 6 초를 못 채워 0 점이 된다.
+#
+# 0.5 초로 잡은 근거: **손을 다시 뻗어 집는 데 그보다 짧게 걸릴 수는 없다.**  실측이 아니라
+# 추정이고, 기록이 초당 10 장이므로 5 프레임이다.  값을 바꿀 일이 생기면 여기 하나만 고친다.
+REGRASP_MIN_S = 0.5
+
+
+def _last_release(rel, t, min_regrab_s=REGRASP_MIN_S):
+    """마지막으로 손을 뗀 프레임 번호.  없으면 None.
+
+    `rel` 은 프레임마다 「바구니가 로봇에게서 떨어져 있고 책상 상판 위에 있다」이다.
+    그것이 참인 구간이 여럿이면 구간 사이가 「다시 잡고 있던 시간」이고, 그 시간이
+    `min_regrab_s` 보다 짧으면 판정이 튄 것으로 보아 앞뒤를 한 번의 놓기로 잇는다.
+
+    (놓기 횟수, 마지막 놓기의 프레임 번호) 를 돌려준다 -- 횟수도 같이 내는 이유는
+    "왜 이 시점을 골랐나" 를 나중에 물어올 것이기 때문이다.
+    """
+    idx = np.flatnonzero(rel)
+    if idx.size == 0:
+        return 0, None
+    starts = [int(idx[0])]
+    for a_i, b_i in zip(idx[:-1], idx[1:]):
+        if b_i == a_i + 1:
+            continue                      # 이어진 같은 구간
+        # 다시 잡고 있던 것은 **프레임 a_i+1 부터 b_i-1 까지**이므로 그 길이는
+        # `t[b_i] - t[a_i]` 가 아니라 `t[b_i] - t[a_i + 1]` 이다.  앞엣것을 쓰면 한
+        # 프레임(0.1 초)씩 길게 세어, 0.4 초짜리 깜빡임이 재파지로 통과한다.
+        if float(t[b_i]) - float(t[a_i + 1]) >= min_regrab_s:
+            starts.append(int(b_i))       # 진짜 재파지 뒤의 새 놓기
+    return len(starts), starts[-1]
+
 
 def load(path):
     z = np.load(path, allow_pickle=False)
@@ -353,15 +393,31 @@ def measure_one(head, a, scene, th):
     if seg == "place":
         near_desk = over_mm < 1000.0
         if not near_desk.any():
-            out["place"] = {"seat_mm": None, "overhang_mm": None, "reached_desk": False}
+            out["place"] = {"seat_mm": None, "overhang_mm": None, "tilt_deg": None,
+                            "reached_desk": False}
         else:
-            good = (seat_mm >= 0.0) & (seat_mm <= th["SEAT_ON_MAX_MM"])
+            # **얹힘과 똑바름을 같은 프레임에서 둘 다 본다** (사용자 결정 2026-09-07:
+            # "뒤집어서 놓으면 점수 없어", 판정은 "같은 프레임에서 둘 다").
+            #
+            # 따로 보면 뒤집힌 채 얹혔다가 나중에 공중에서 똑바로 선 판도 통과한다.
+            # 이 항목의 뜻은 「똑바로 얹힌 순간이 한 번이라도 있었나」다.
+            #
+            # 기울기 문턱은 6 초 창과 **같은 상수**(`TILT_OK_DEG`)를 쓴다.  같은 물음에
+            # 문턱을 두 개 두면 언젠가 갈라진다.
+            tilt_all = np.array([GG.tilt_deg(q) for q in a["crate_quat"]])
+            seated = (seat_mm >= 0.0) & (seat_mm <= th["SEAT_ON_MAX_MM"])
+            upright = tilt_all <= th["TILT_OK_DEG"]
+            good = seated & upright
             if good.any():
                 i = int(np.argmin(np.where(good, over_mm, np.inf)))
             else:
                 i = int(np.argmin(np.abs(seat_mm)))
             out["place"] = {"seat_mm": float(seat_mm[i]), "overhang_mm": float(over_mm[i]),
-                            "reached_desk": True, "at_s": float(a["t"][i])}
+                            "tilt_deg": float(tilt_all[i]), "reached_desk": True,
+                            "at_s": float(a["t"][i]),
+                            # 실패했을 때 **무엇 때문인지** 가리려고 둘을 따로 남긴다.
+                            "seated_any": bool(seated.any()),
+                            "upright_any": bool((seated & upright).any())}
 
         # 감시창의 시작은 **로봇의 단계가 아니라 바구니의 상태**로 잡는다.
         #
@@ -370,10 +426,10 @@ def measure_one(head, a, scene, th):
         # 것이 아니다.  상판 위일 것을 같이 걸어 둔다: 상판 밖에서 같은 일이 일어나면 그것은
         # 낙하이고 위에서 이미 판을 끝냈다.
         rel = (~on_robot) & on_top
-        if not rel.any():
+        n_rel, r = _last_release(rel, a["t"])
+        if r is None:
             out["watch"] = {"opened": False}
         else:
-            r = int(np.argmax(rel))
             w = (a["t"] >= a["t"][r]) & (a["t"] <= a["t"][r] + th["WATCH_S"])
             # **창의 마지막 WATCH_TAIL_S 초** (시트 Sub 3# ④: "창 마지막 0.5초 동안").
             # 창이 6초를 다 못 채우고 로그가 끝났으면 있는 것의 꼬리를 본다.
@@ -383,6 +439,9 @@ def measure_one(head, a, scene, th):
             worst_seat = float(s.min() if (s < 0).any() else s.max())
             tilt = np.array([GG.tilt_deg(q) for q in a["crate_quat"][w]])
             out["watch"] = {"opened": True, "t_release_s": float(a["t"][r]),
+                            # 몇 번 놓았고 그중 몇 번째를 썼는가.  언제나 마지막이지만
+                            # 숫자를 남겨 두어야 "왜 이 시점인가" 에 답할 수 있다.
+                            "releases": int(n_rel), "release_index": int(n_rel),
                             "seat_mm": worst_seat,
                             "overhang_mm": float(over_mm[w].max()),
                             "tilt_deg": float(tilt.max()),

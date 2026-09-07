@@ -317,6 +317,19 @@ def score(m, th=None):
         elif not (0.0 <= seat <= t["SEAT_ON_MAX_MM"]):
             items["placed"] = _item(False, f"상판 대비 높이 {seat:.1f} mm "
                                            f"(0~{t['SEAT_ON_MAX_MM']:.0f} 이어야 한다)")
+        elif place.get("upright_any") is False:
+            # **뒤집혀 얹힌 것은 얹은 것이 아니다** (사용자 결정 2026-09-07).
+            #
+            # 높이만 보면 거꾸로 엎어 놓아도 통과한다 -- 상판에서 0~5 mm 는 그대로이기
+            # 때문이다.  얹힘과 똑바름을 **같은 프레임에서** 둘 다 만족해야 하고, 그
+            # 판정은 `score_from_log.py` 의 place 블록이 한다.
+            #
+            # 문턱은 6 초 창과 같은 `TILT_OK_DEG` 다.  같은 물음에 문턱을 둘 두지 않는다.
+            pt = place.get("tilt_deg")
+            items["placed"] = _item(False,
+                                    "상판 높이는 맞았으나 똑바로 얹힌 순간이 없다 — 기울기 "
+                                    + (f"{pt:.1f} 도" if pt is not None else "미상")
+                                    + f" (문턱 {t['TILT_OK_DEG']:.0f})")
         elif dm is None:
             items["placed"] = _item(None, "책상이 얼마나 움직였는지 못 읽었다 "
                                           "(동적으로 스폰됐나)")
@@ -344,7 +357,22 @@ def score(m, th=None):
             w_over = watch.get("overhang_mm")
             w_tilt = watch.get("tilt_deg")
             w_spd = watch.get("tail_speed_mm_s")
-            if None in (w_seat, w_over, w_tilt, w_spd):
+            w_win = watch.get("window_s")
+            # **6 초를 못 채웠으면 0 점이다** (사용자 결정 2026-09-07).
+            #
+            # 못 채우는 경우는 하나뿐이다 -- 손을 너무 늦게 뗐다.  에피소드에는 시간
+            # 예산이 넉넉해서(제한 1,200 초), 일찍 끝낸 로봇은 6 초가 언제나 남는다.
+            #
+            # 있는 만큼만 보고 채점하면 **놓자마자 기록이 끝나는 쪽이 유리해진다** --
+            # 볼 시간이 없으면 나쁜 순간도 없기 때문이다.  그래서 창이 짧으면 통과가
+            # 아니라 실패다.  「못 잰 것」이 아니라 「못 보인 것」이므로 None 이 아니다.
+            #
+            # 우리 정답 주행 세 판은 창을 꽉 채우고 0.4 초가 남는다 (2026-09-07 실측).
+            if w_win is not None and w_win < t["WATCH_S"] - 1e-6:
+                items["stayed"] = _item(
+                    False, f"손 뗀 뒤 {w_win:.1f}초밖에 기록이 없다 "
+                           f"(요구 {t['WATCH_S']:.0f}초) — 6초 동안 버티는 것을 보이지 못했다")
+            elif None in (w_seat, w_over, w_tilt, w_spd):
                 items["stayed"] = _item(None, "감시창 안에서 못 읽은 값이 있다")
             else:
                 bad = []
