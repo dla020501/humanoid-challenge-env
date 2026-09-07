@@ -29,7 +29,9 @@ services:
       - OMNI_KIT_ALLOW_ROOT=1
       - ACCEPT_EULA=${ACCEPT_EULA}
       - PRIVACY_CONSENT=Y
-      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_VISIBLE_DEVICES=0,1
+      # privileged: true 가 device_ids 격리를 무력화하므로, 실제로 쓸 GPU 는 이 줄이 정한다.
+      - CUDA_VISIBLE_DEVICES=0,1
       - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
       # Isaac Sim 캐시 — 첫 기동 후 셰이더/에셋 캐시가 남아 재기동이 빨라집니다.
@@ -50,7 +52,8 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: all
+              #count: all
+              device_ids: ["0", "1"]
               capabilities: [ gpu ]
 
 volumes:
