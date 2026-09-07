@@ -185,7 +185,7 @@ if SCORED is not None:
         if _kind == "ever" and _at is not None:
             EVENTS.setdefault(int(_at), []).append((_label, int(_mx)))
     _lay, _col = SCORED["target"]
-    print(f"[점수] 채점 대상 {SCORED['product']} → 목표 칸 L{_lay} c{_col} · 평가표 15항목 30점")
+    print(f"[점수] 채점 대상 {SCORED['product']} → 목표 칸 L{_lay} c{_col} · 평가표 15항목 {taskb_score.TOTAL}점")
     print(f"[점수] 채점 종료 프레임 {SCORED['end_frame']} "
           f"({SCORED['end_frame'] / RECORD_HZ:.1f}초, {taskb_score.END_WORDS[SCORED['measured']['end_reason']]}"
           + (f" -- gripper 열림 {SCORED['release_frame'] / RECORD_HZ:.1f}초 + 3초"
@@ -343,7 +343,7 @@ def main():
             return
         for label, pts in EVENTS.get(i, []):
             got += pts
-            print(f"[점수] {i / RECORD_HZ:6.1f}초  {label:<26s} +{pts}   누적 {got:2d}/30", flush=True)
+            print(f"[점수] {i / RECORD_HZ:6.1f}초  {label:<26s} +{pts}   누적 {got:2d}/{taskb_score.TOTAL}", flush=True)
         if i != SCORED["end_frame"]:
             return
         m = SCORED["measured"]
@@ -358,7 +358,7 @@ def main():
             pts = SCORED["points"][rid]
             got += pts
             print(f"[점수]          {label:<26s} {'+' + str(pts) if pts else ' 0'}/{mx}   {why[rid]}", flush=True)
-        print(f"[점수] ════ 최종 {got} / 30 점 ════\n", flush=True)
+        print(f"[점수] ════ 최종 {got} / {taskb_score.TOTAL} 점 ════\n", flush=True)
 
     for i in range(NFRAMES):
         announce(i)

@@ -2,7 +2,7 @@
 #
 # 과제 B 궤적 채점기 -- `평가표.xlsx` 의 Task-B 시트를 그대로 코드로 옮긴 것.
 #
-# 상품 하나에 15항목 30점이다. 판정은 시트가 정한 두 가지뿐이다:
+# 상품 하나에 15항목 TOTAL 점이다 (2026-09-07 시트: B12 4점 · B16 4점으로 올라 34점). 판정은 시트가 정한 두 가지뿐이다:
 #
 #   [한 번이라도]  판이 도는 내내 보고, 한 번이라도 참이면 점수. 뒤에 무슨 일이 생겨도 뺏지 않는다.
 #   [그 시점에]    채점 종료의 한 순간에 한 번만 보고 판정한다.
@@ -15,13 +15,19 @@
 #
 #   score_npz(path)      state npz(task_b_episode.py 가 쓰는 것, humanoid-challenge-env 의
 #                        taskB/demos/demo_*.npz 도 같은 형식)를 읽어 프레임을 먹인다. 접촉력은 없지만
-#                        B6 는 상품이 상자 안에서 움직였는가(또는 들렸는가)로 재서 30점 만점이다.
+#                        B6 는 상품이 상자 안에서 움직였는가(또는 들렸는가)로 재서 TOTAL 점 만점이다.
 #   ProductScorer 직접   판이 도는 중에 프레임마다 .update() 를 부르고, 놓은 뒤 3초에 .finish().
 #                        접촉 센서 값(contact_N)을 주면 B6 는 그것으로도 참이 된다.
 #
 # 채점 종료는 시트대로 둘뿐이다. 둘 다 채점기가 스스로 찾는다:
 #   놓은 뒤 3초   잡고 있던 손의 gripper 가 열리는 프레임 + 3초 (score_npz 가 관절 기록에서 찾는다)
-#   떨어짐        상자 밖으로 나온 뒤 어느 판에도 안 놓인 채 테두리 아래에서 3초 멈춰 있는 순간. 그 뒤는 안 본다
+#   떨어짐        상자 밖으로 나온 뒤 어느 판에도 안 놓인 채 바닥에 밑면이 닿은 그 순간. 그 뒤는 안 본다
+#
+# 그리고 시트 [심사 유의사항]의 조합 중단 둘 -- 그 순간까지의 점수가 최종 점수다:
+#   상자가 탁자에서 떨어짐   상자 중심이 탁자 윗면 아래로 내려간 프레임 (crate_off_table)
+#   탁자가 10 cm 넘게 움직임  update(table_pos=...) 로 받은 탁자 위치가 첫 프레임에서 그만큼 벗어난 프레임 (table_moved).
+#                            npz 에는 탁자가 없고 sim 에서도 탁자는 고정 collider 라 오프라인은 「못 잼」이다 -- 실시간
+#                            심사 서버가 값을 줄 때만 걸린다 (contact_N 과 같은 방식)
 #
 # 시트와 다르게 둔 것 셋 -- 전부 사용자 결정 2026-09-03, THRESHOLD 옆에 적혀 있다:
 #   B15 서 있는가   진열 자세 15° 가 아니라 뒷줄 같은 상품의 z 축과 같은 쪽(< 90°)
@@ -32,7 +38,7 @@
 # 패키지 __init__ 을 타지 않고 파일 경로로 읽는다 -- 패키지가 isaaclab 과 toml 을 끌어오기 때문이고,
 # humanoid-challenge-env/scripts/task_b_replay.py 가 같은 이유로 같은 방법을 쓴다.
 #
-#   python3 scripts/tools/taskb_score.py <state.npz> [...]         판마다 30점 표
+#   python3 scripts/tools/taskb_score.py <state.npz> [...]         판마다 TOTAL 점 표
 #   python3 scripts/tools/taskb_score.py --glob '<dir>/*.npz' --json out.json
 
 import argparse
@@ -96,10 +102,14 @@ THRESHOLD = {
                              #     사다리의 첫 칸이라 후한 것이 맞다
     "upright_deg": 90.0,     # B15 뒷줄 같은 상품의 z 축과 같은 쪽을 보는가 -- 각도 < 90° (사용자 2026-09-03: "z방향이 같으면").
                              #     ※ 시트의 15° 는 놓은 539판 중 87 만 통과했고, 90° 선은 85~95° 에 263판이 몰린 자리다
+                             #     시트 "눕혀서 진열하는 상품은 누워 있는 것이 통과" (oreo_strawberry, taskb_orientation.json
+                             #     upright: false) 는 따로 안 둔다 -- 뒷줄 z 축, 없으면 진열 자세(stock_orientation)와 견주므로
+                             #     누운 진열 자세가 곧 기준이다. 실측: oreo 의 진열 자세 대비 tilt 0.0°
     "facing_deg": 90.0,      # B16 뒷줄 같은 상품 기준 ±90° (사용자 2026-09-03). 서 있을 때(B15 통과)만 본다
     "still_mm_s": 10.0,      # B18
     "watch_s": 3.0,          # 시트: 놓은 뒤 3초에 판정한다
     "crate_tilt_deg": 45.0,  # B19 ※ 실측: passed 3,133판 중 45° 안 3,127
+    "table_moved_mm": 100.0, # 조합 중단: 탁자가 10 cm 넘게 움직이면 그 순간까지의 점수가 최종 (시트 [심사 유의사항])
     "neighbour_deg": 15.0,   # B20 시트의 「서 있는가」 자(15°)를 진열 자세 기준으로 그대로 쓴다
 }
 
@@ -111,18 +121,19 @@ RUBRIC = (
     ("B9", "A-2", 2, "ever", "product 를 선반 앞까지 가져갔는가"),
     ("B10", "A-2", 2, "ever", "product 를 목표 층 높이까지 올렸는가"),
     ("B11", "A-2", 2, "ever", "product 를 목표 칸 바로 앞까지 가져갔는가"),
-    ("B12", "A-2", 3, "at", "product 를 끝까지 떨어뜨리지 않았는가"),
+    ("B12", "A-2", 4, "at", "product 를 끝까지 떨어뜨리지 않았는가"),   # 2026-09-07 시트: 3 → 4
     ("B13", "A-3", 2, "at", "목표 층에 올렸는가"),
     ("B14", "A-3", 4, "at", "어느 칸에 넣었는가"),
     ("B15", "A-3", 2, "at", "서 있는가"),
-    ("B16", "A-3", 1, "at", "방향이 맞는가"),
+    ("B16", "A-3", 4, "at", "방향이 맞는가"),                          # 2026-09-07 시트 C16: 1 → 4 (D16 은 1로 남아 있어 사용자 결정 09-07)
     ("B17", "A-3", 1, "at", "앞줄인가"),
     ("B18", "A-3", 1, "at", "멈췄는가"),
     ("B19", "A-4", 2, "at", "파란색 상자가 탁자 위에 그대로 있는가"),
     ("B20", "A-4", 2, "at", "선반 위 다른 상품들이 그대로 서 있는가"),
 )
 POINTS = {r[0]: r[2] for r in RUBRIC}
-assert sum(POINTS.values()) == 30
+TOTAL = sum(POINTS.values())     # 34 (2026-09-07). 화면·문서는 이 이름을 쓴다 -- 30 을 박아 두면 시트가 바뀔 때 거짓이 된다
+assert TOTAL == 34
 
 
 # ---- 쿼터니언 (w, x, y, z) -- task_b_episode.py 의 것과 같다 ------------------------------
@@ -231,19 +242,25 @@ class ProductScorer:
         self.lift_max_mm = 0.0
         self.moved_max_mm = 0.0
         self.moved_at_touch_mm = None
+        self.table0 = None
+        self.table_moved_mm = None   # 탁자 위치를 받은 적이 없으면 None = 못 잼
         self.n = 0
         self.last = None
         self.result = None
 
     # ---- [한 번이라도] ----------------------------------------------------------------------
     def update(self, t, product_pos, product_quat, crate_pos, crate_quat, shelf, contact_N=None,
-               speed_mm_s=None):
+               speed_mm_s=None, table_pos=None):
         """프레임 하나. shelf 는 {열쇠: (pos, quat)}. contact_N 은 상품에 단 센서가 읽은 힘(없으면 None).
+        table_pos 는 탁자 위치(없으면 None -- npz 에는 없고, 실시간 심사 서버만 준다).
 
         떨어짐을 스스로 감지한다: 상자 밖으로 나온 뒤(B8) 상품이 어느 판에도 안 놓인 채 바닥에 밑면을
         대는 그 프레임에 finish("dropped") 를 부르고 `done` 이 된다 -- 시트: "상품이 바닥에
         떨어지면 그 상품의 평가는 거기서 끝난다. 떨어진 상품을 다시 줍는 것은 허용하지 않는다".
         그 뒤의 update 는 무시된다.
+
+        조합 중단 둘도 여기서 본다 (시트 [심사 유의사항]): 상자가 탁자에서 떨어지면 finish("crate_off_table"),
+        탁자가 THRESHOLD["table_moved_mm"] 넘게 움직이면 finish("table_moved"). 그 순간까지의 점수가 최종이다.
         """
         if self.done:
             return
@@ -255,6 +272,7 @@ class ProductScorer:
             self.in_crate0 = in_crate
             # 테두리 높이는 상수가 아니라 상자가 탁자에 자리 잡은 뒤의 z 에서 잰다 (시트 B8 ※).
             self.rim = float(crate_pos[2]) + CRATE_H
+            self.table0 = None if table_pos is None else np.asarray(table_pos, dtype=float)
         self.lift_max_mm = max(self.lift_max_mm, (float(p[2]) - self.z0) * 1000.0)
         moved_mm = float(np.linalg.norm(in_crate - self.in_crate0)) * 1000.0
         self.moved_max_mm = max(self.moved_max_mm, moved_mm)
@@ -293,6 +311,17 @@ class ProductScorer:
             q = tuple(float(v) for v in product_quat)
             if board_under(p, q, self.size)[0] is None and self._on_floor(p, q):
                 self.finish("dropped")
+                return
+        # ---- 조합 중단 ①: 파란 상자가 탁자에서 떨어짐 = 상자 중심이 탁자 윗면 아래 (B19 와 같은 자)
+        if float(crate_pos[2]) + CRATE_H / 2.0 < TABLE_TOP:
+            self.finish("crate_off_table")
+            return
+        # ---- 조합 중단 ②: 탁자가 10 cm 넘게 움직임. 탁자 위치를 받았을 때만 잰다
+        if table_pos is not None and self.table0 is not None:
+            self.table_moved_mm = float(np.linalg.norm(np.asarray(table_pos, dtype=float) - self.table0)) * 1000.0
+            if self.table_moved_mm > THRESHOLD["table_moved_mm"]:
+                self.finish("table_moved")
+                return
 
     def _on_floor(self, p, q):
         """상품의 밑면이 바닥(z = 0)에 닿아 있나. 허용 폭은 판 위 판정과 같은 ON_BOARD_MM."""
@@ -319,6 +348,7 @@ class ProductScorer:
         m["moved_at_touch_mm"] = None if self.moved_at_touch_mm is None else round(self.moved_at_touch_mm, 1)
         m["lift_max_mm"] = round(self.lift_max_mm, 1)
         m["rim_z"] = round(self.rim, 4)
+        m["table_moved_mm"] = None if self.table_moved_mm is None else round(self.table_moved_mm, 1)
 
         # B12 -- 시트: 떨어뜨려서 끝난 것이 아니면 통과. 「떨어졌다」는 손에서 벗어나 바닥·탁자·상자에 떨어진
         # 것이고 선반 판 위에 내려놓은 것은 아니다. 그래서 끝 프레임에 ① 밑면이 어느 선반 판에 닿아 있으면 놓은
@@ -516,6 +546,7 @@ def score_npz(path, products=None, end_frame=None):
 
 # ---- 화면 -----------------------------------------------------------------------------------
 END_WORDS = {"placed": "선반 위에 놓음", "dropped": "떨어뜨림", "in_hand": "든 채 끝남"}
+ABORT_WORDS = {"crate_off_table": "상자가 탁자에서 떨어져 조합 중단", "table_moved": "탁자가 10 cm 넘게 움직여 조합 중단"}
 
 
 def reasons(r):
@@ -528,7 +559,7 @@ def reasons(r):
         "B8": f"테두리 {m['rim_z']:.3f}",
         "B9": "", "B10": "",
         "B11": "",
-        "B12": END_WORDS[m["end_reason"]],
+        "B12": END_WORDS[m["end_reason"]] + (f" ({ABORT_WORDS[m['end_by']]})" if m["end_by"] in ABORT_WORDS else ""),
         "B13": (f"층 {m['layer']} 밑면 {m['under_mm']:+.0f} mm" if m["layer"] is not None
                 else f"판 위 아님 (밑면 {m['under_mm']} mm)" if m["under_mm"] is not None else "선반 밖"),
         "B14": f"칸 {m['cell']} 좌우 {m['off_y_mm']:+.0f} mm",
