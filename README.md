@@ -55,9 +55,10 @@ workspace/    참가자 작업 공간. 컨테이너의 /workspace/user 경로로
 git clone git@github.com:kairobahq/humanoid-challenge-env.git
 cd humanoid-challenge-env
 
-# 1) Isaac Sim 사용 약관(EULA) 동의 — docker/.env 파일에서 ACCEPT_EULA=Y 로 변경하세요.
-#    (NVIDIA Isaac Sim 라이선스에 본인이 동의함을 의미합니다.)
-vi docker/.env
+# 1) Isaac Sim 사용 약관(EULA) 동의 — 이 저장소는 docker/.env 에 ACCEPT_EULA=Y 가
+#    이미 설정되어 있으므로 그대로 두면 됩니다. 값을 확인만 하세요.
+#    (NVIDIA Isaac Sim 라이선스에 본인이 동의함을 의미합니다. 동의하지 않으면 값을 비우세요.)
+grep ACCEPT_EULA docker/.env      # ACCEPT_EULA=Y 가 나와야 합니다
 
 # 2) 로컬 머신에서 Docker 이미지 빌드 (최초 실행 시 20~40분 소요).
 #    이 명령어 하나로 Isaac Sim 베이스 이미지 다운로드 및 환경 설치가 모두 진행됩니다.
@@ -69,7 +70,9 @@ docker compose up -d
 docker exec -it challenge_env bash
 ```
 
-> `container ... is not running` 에러 발생 시 `docker logs challenge_env` 명령어로 로그를 확인하세요. 대개 1번(ACCEPT_EULA 동의) 단계를 누락한 경우 발생합니다.
+> `container ... is not running` 에러 발생 시 `docker logs challenge_env` 명령어로 로그를 확인하세요.
+> 대개 `docker/.env` 의 `ACCEPT_EULA` 가 비어 있을 때 발생합니다 — 이 저장소에는 `Y` 로 설정되어
+> 있으니, 값을 지웠거나 `.env` 를 원본에서 새로 받아온 경우가 아니라면 이 오류는 나지 않습니다.
 
 ### 특정 GPU 만 사용하기 (다중 GPU 환경)
 
