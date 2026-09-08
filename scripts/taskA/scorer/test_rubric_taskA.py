@@ -85,10 +85,13 @@ check("떠올랐으나 안 물음",
       got(R.score(m(lift={"peak_mm": 120.0, "gripped": False})), "picked"), False)
 check("떠올랐으나 안 물음은 0점",
       R.score(m(lift={"peak_mm": 120.0, "gripped": False}))["items"]["picked"]["points"], 0.0)
-# 높이는 읽었는데 접촉을 못 읽은 경우는 **0점이 아니라 분모에서 빠진다**
+# 높이는 읽었는데 접촉을 못 읽은 경우.  **못 읽었다는 사실은 남기되 분모는 안 줄인다**
+# (사용자 결정 2026-09-08) -- 예전에는 분모에서 빼서 덜 할수록 비율이 좋아졌다.
 r = R.score(m(lift={"peak_mm": 120.0, "gripped": None}))
 check("접촉 못 읽음 = None", got(r, "picked"), None)
-check("접촉 못 읽으면 분모에서 빠짐", r["possible"], 18.0)
+check("못 읽어도 분모는 21", r["possible"], 21.0)
+check("못 읽으면 0점", r["items"]["picked"]["points"], 0.0)
+check("못 읽은 항목은 unscored 에 남는다", "picked" in r["unscored"], True)
 
 # ── Sub 2# 도착 -- 발자국이 구역에 걸치는가 ────────────────────────────────────────────
 # 실측 2026-09-02, seed 0 GT: 3,102 프레임 내내 안 멈춘 것으로 나왔던 그 로그.
@@ -154,7 +157,7 @@ check("창 끝에 아직 움직임", got(R.score(m(watch={"tail_speed_mm_s": 25.
 check("손을 안 뗌", got(R.score(m(watch={"opened": False})), "stayed"), False)
 r = R.score(m(watch={"opened": None}))
 check("손 뗐는지 못 읽음 = None", got(r, "stayed"), None)
-check("못 읽으면 분모에서 빠짐", r["possible"], 17.0)
+check("못 읽어도 분모는 21", r["possible"], 21.0)
 
 # ── 발자국 겹침 규칙 (`zone_gap_mm`) ─────────────────────────────────────────────────
 GOAL = (-0.1003, 2.5588)
@@ -205,7 +208,8 @@ check("기울기 15도", R.TILT_OK_DEG, 15.0)
 check("감시창 6초", R.WATCH_S, 6.0)
 check("창 꼬리 0.5초", R.WATCH_TAIL_S, 0.5)
 check("책상 20 mm", R.DESK_OK_MM, 20.0)
-check("제한 20분", R.TIME_LIMIT_S, 1200.0)
+# 한 시도 10 분 x 3 회 (2026-09-08 구조).  예전 값은 1,200 초였다.
+check("제한 10분", R.TIME_LIMIT_S, 600.0)
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════
@@ -300,6 +304,17 @@ check("걸침은 채점 대상이 아니다", R.OVERHANG_SCORED, False)
 
 # ── 세 변경이 서로를 깨지 않는가 ──────────────────────────────────────────────────────
 check("셋 다 정상이면 만점", R.score(m())["total"], 21.0)
+
+
+# ── 2026-09-08: 감시창 안에서 다시 잡으면 0점 ─────────────────────────────────────────
+# 「손 뗀 뒤 6초 동안 잘 **놓여** 있었는가」이므로 손을 대고 있으면 놓여 있는 것이 아니다.
+# 바로잡고 다시 놓은 판은 여기 안 걸린다 -- 그 마지막 놓기부터 창을 새로 세기 때문이다.
+check("창 내내 손 뗌 -> 통과", got(R.score(m(watch={"hands_off": True})), "stayed"), True)
+check("창 안에서 다시 잡음 -> 0점",
+      got(R.score(m(watch={"hands_off": False})), "stayed"), False)
+check("다시 잡아도 분모는 21",
+      R.score(m(watch={"hands_off": False}))["possible"], 21.0)
+check("hands_off 가 없으면 예전대로", got(R.score(m()), "stayed"), True)
 
 
 if FAIL:

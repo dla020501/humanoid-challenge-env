@@ -103,7 +103,7 @@ WATCH_TAIL_S = 0.5
 DESK_OK_MM = 20.0
 
 # 선언 (시트 머리 "제한 시간: 20min").
-TIME_LIMIT_S = 1200.0
+TIME_LIMIT_S = 600.0
 
 # 선언 (시트의 「시도 1 / 2 / 3」 열과 「최종 점수 51」).  세 판을 **더한다**.
 ATTEMPTS = 3
@@ -368,7 +368,14 @@ def score(m, th=None):
             # 아니라 실패다.  「못 잰 것」이 아니라 「못 보인 것」이므로 None 이 아니다.
             #
             # 우리 정답 주행 세 판은 창을 꽉 채우고 0.4 초가 남는다 (2026-09-07 실측).
-            if w_win is not None and w_win < t["WATCH_S"] - 1e-6:
+            if watch.get("hands_off") is False:
+                # 창 안에서 다시 잡았다.  「손 뗀 뒤 6 초 동안 잘 **놓여** 있었는가」이므로
+                # 손을 대고 있으면 놓여 있는 것이 아니다.  바로잡고 다시 놓은 판은 여기
+                # 안 걸린다 -- 그 마지막 놓기부터 창을 새로 세기 때문이다.
+                items["stayed"] = _item(
+                    False, "6초 창 안에서 바구니를 다시 잡았다 — 손을 뗀 뒤 6초를 "
+                           "보이지 못했다 (바로잡고 다시 놓았다면 그 시점부터 다시 센다)")
+            elif w_win is not None and w_win < t["WATCH_S"] - 1e-6:
                 items["stayed"] = _item(
                     False, f"손 뗀 뒤 {w_win:.1f}초밖에 기록이 없다 "
                            f"(요구 {t['WATCH_S']:.0f}초) — 6초 동안 버티는 것을 보이지 못했다")
@@ -406,7 +413,18 @@ def score(m, th=None):
         got = it["got"]
         out[k] = {"got": got, "why": it["why"], "when": WHEN[k], "label": LABEL[k],
                   "points": POINTS[k] if got else 0.0,
-                  "possible": 0.0 if got is None else POINTS[k]}
+                  # **분모는 언제나 배점이다** (사용자 결정 2026-09-08).
+                  #
+                  # 예전에는 `got is None` 이면 분모에서 뺐다.  「안 했다」와 「못 쟀다」를
+                  # 가르려는 뜻이었는데, 그것을 가를 방법이 로그밖에 없고 로그는 채점받는
+                  # 쪽이 만든다.  실측 2026-09-08: 집기만 하고 멈추면 7/7 = 100 %,
+                  # 놓기 토막만 내면 18/18 = 100 % 가 나왔다 -- **덜 할수록 비율이 좋아졌다.**
+                  #
+                  # 이제 한 시도는 언제나 21 점 만점이다.  못 보였으면 0 점이다.  로그가
+                  # 깨져서 못 본 경우는 `log_check` 가 채점 자체를 거부하므로 여기까지
+                  # 오지 않는다.  `unscored` 에는 이름을 계속 남겨 **왜 못 봤는지**는
+                  # 보고한다.
+                  "possible": POINTS[k]}
 
     groups = {}
     for k in ITEMS:

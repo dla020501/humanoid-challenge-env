@@ -241,8 +241,22 @@ def measure_one(head, a, scene, th):
     gripped = on_grip & free                           # Sub 1# 의 「물고 있다」
 
     # ── [판 내내] 두 항목은 어느 조각에서나 잰다 ────────────────────────────────────────
+    # **충돌은 배열로 판정한다.  머리말을 믿지 않는다.**
+    #
+    # 예전에는 `hit.get("hit", <배열로 계산>)` 이라 머리말에 값이 있으면 배열을 보지
+    # 않았다.  머리말은 로그를 만든 쪽이 쓰는 것이고, 채점받는 쪽이 만들 수도 있다.
+    # 실측 2026-09-08: 배열이 "1449 프레임 내내 부딪혔다" 라고 하는데 머리말만
+    # `{"hit": false}` 로 바꾸면 「가구와 부딪히지 않았다」 4 점을 그대로 받았다.
+    #
+    # 머리말은 **무엇에** 부딪혔는지(`fixture`, `part`)에만 쓴다.  둘이 어긋나면 조용히
+    # 한쪽을 고르지 않고 메모에 남긴다 -- 어긋난다는 사실 자체가 알아야 할 정보다.
     hit = head.get("hit") or {}
-    out["furniture"] = {"hit": bool(hit.get("hit", bool(a["hit_now"].max() > 0.5))),
+    hit_from_log = bool(a["hit_now"].max() > 0.5)
+    if "hit" in hit and bool(hit["hit"]) != hit_from_log:
+        out["notes"].append(
+            "머리말은 충돌을 %s 라고 하는데 기록은 %s 다 -- **기록을 따랐다**"
+            % ("있다" if hit["hit"] else "없다", "있다" if hit_from_log else "없다"))
+    out["furniture"] = {"hit": hit_from_log,
                         "worst_mm": float(a["hit_depth_mm"].max()),
                         "what": hit.get("fixture"), "part": hit.get("part"),
                         "frames": int(a["hit_now"].sum())}
@@ -299,12 +313,24 @@ def measure_one(head, a, scene, th):
         j = int(np.argmax(hit_now))
         if stop_i is None or j < stop_i:
             stop_i, stop_why = j, "hit"
+    # **제한 시간을 넘긴 프레임은 없는 것으로 본다.**
+    #
+    # 하네스가 한 시도를 제한 시간에 자르므로 채점기도 같은 자리에서 잘라야 한다.
+    # 예전에는 넘겨도 벌칙이 없었다 -- 실측 2026-09-08: 시계를 100 배로 늘려 판이
+    # 5 시간짜리가 되어도 17/21 이 나왔다.
+    over = a["t"] > th["TIME_LIMIT_S"]
+    if over.any():
+        j = int(np.argmax(over))
+        if stop_i is None or j < stop_i:
+            stop_i, stop_why = max(j - 1, 0), "time_limit"
     if stop_i is not None:
         out["stopped_at_s"] = float(a["t"][stop_i])
         out["stopped_why"] = stop_why
         out["notes"].append(
             f"{a['t'][stop_i]:.1f}초에 "
             + ("바구니가 그리퍼를 벗어나 상판 밖에서 멈췄다 — 판 종료" if stop_why == "dropped"
+               else f"제한 시간 {th['TIME_LIMIT_S']:.0f}초를 넘겼다 — 판 종료"
+               if stop_why == "time_limit"
                else f"{out['furniture'].get('what') or '매장 가구'} 에 부딪혔다 — 판 종료")
             + f" (기록은 {a['t'][-1]:.1f}초까지 있으나 여기서 자른다)")
         # **여기서 자른다.**  뒤 항목들은 잘린 구간만 본다.
@@ -326,7 +352,14 @@ def measure_one(head, a, scene, th):
         out["frames_scored"] = int(stop_i + 1)
 
     # ── 집기 조각만 답할 수 있는 것 ─────────────────────────────────────────────────────
-    if seg == "pick":
+    # **예전에는 토막 이름이 이 문을 열었다** (`if seg == "..."`).  그러면 무엇을 잴지를
+    # 로그의 이름표가 정하고, 그 이름표는 채점받는 쪽이 만든다.  실측 2026-09-08:
+    # 토막 이름을 지우면 여섯 항목 중 다섯이 아예 안 재져 **4/4 = 100 %** 가 나왔고,
+    # 전부 'place' 라고 붙이면 18/18 = 100 % 가 나왔다.
+    #
+    # 이제 한 시도를 한 타임라인으로 보고 **언제나 다 잰다.**  못 한 일은 「못 잰 것」이
+    # 아니라 0 점이다 (`rubric_taskA` 의 분모 고정과 짝이다).
+    if True:                     # 들어올림
         z0 = float(a["crate_pos"][0, 2])
         rise = (a["crate_pos"][:, 2] - z0) * 1000.0
         cand = rise >= th["LIFT_OK_MM"]
@@ -351,7 +384,7 @@ def measure_one(head, a, scene, th):
     # 실측 2026-09-02: 주행 기록은 **로봇이 아직 움직이는 동안 끝난다** (seed 0 의 마지막
     # 4 초 중앙 속도 85 mm/s, seed 1 은 56).  실제로 멈추는 것은 그 다음 조각인 놓기의
     # 첫 국면 -- 책상 쪽으로 제자리에서 도는 동안이고, 그때도 목표 구역 안에 있다.
-    if seg in ("carry", "place"):
+    if True:                     # 도착과 「그 시점에 들고 있었나」
         goal = np.asarray(scene["goal"]["xy"], dtype=np.float64)
         zone = float(scene["goal"].get("tol_m") or th["ARRIVE_ZONE_M"])
         # **중심 거리가 아니라 발자국 겹침이다** (사용자 결정 2026-09-02).  규칙 자체는
@@ -390,7 +423,7 @@ def measure_one(head, a, scene, th):
                 f"{edge_mm.min():.0f} mm)")
 
     # ── 놓기 조각만 답할 수 있는 것 ─────────────────────────────────────────────────────
-    if seg == "place":
+    if True:                     # 책상에 얹었나 + 손 뗀 뒤 6 초
         near_desk = over_mm < 1000.0
         if not near_desk.any():
             out["place"] = {"seat_mm": None, "overhang_mm": None, "tilt_deg": None,
@@ -438,7 +471,19 @@ def measure_one(head, a, scene, th):
             s = seat_mm[w]
             worst_seat = float(s.min() if (s < 0).any() else s.max())
             tilt = np.array([GG.tilt_deg(q) for q in a["crate_quat"][w]])
+            # **창 안에서 다시 잡으면 안 된다** (사용자 결정 2026-09-08).
+            #
+            # 창은 시간만 보고 그 안에서 다시 잡았는지 보지 않았다.  실측 2026-09-08:
+            # 놓고 2 초 뒤 다시 잡고 끝까지 들고 있어도 **통과**했다 -- 가만히 붙잡고만
+            # 있으면 바구니가 안 움직이기 때문이다.  「손 뗀 뒤 6 초 동안 잘 **놓여**
+            # 있었는가」인데 손을 대고 있는 것이다.
+            #
+            # 바로잡으려고 다시 잡는 것은 상관없다 -- 바로잡고 **다시 놓으면** 그 마지막
+            # 놓기부터 창을 새로 세기 때문이다.  걸리는 것은 다시 잡고 끝까지 안 놓는
+            # 판뿐이고, 그것은 정렬이 아니라 아직 안 놓은 것이다.
+            hands_off = bool(rel[w].all())
             out["watch"] = {"opened": True, "t_release_s": float(a["t"][r]),
+                            "hands_off": hands_off,
                             # 몇 번 놓았고 그중 몇 번째를 썼는가.  언제나 마지막이지만
                             # 숫자를 남겨 두어야 "왜 이 시점인가" 에 답할 수 있다.
                             "releases": int(n_rel), "release_index": int(n_rel),
