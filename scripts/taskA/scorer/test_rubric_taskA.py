@@ -317,6 +317,33 @@ check("다시 잡아도 분모는 21",
 check("hands_off 가 없으면 예전대로", got(R.score(m()), "stayed"), True)
 
 
+# ── 2026-09-09: 도착 구역을 책상 둘레로, 멈춤 요구를 뺀다 ─────────────────────────────
+# 우리가 정한 목표점 반경 0.10 m 원이면 로봇 중심이 목표에서 0.325 m 안에 있어야 했는데,
+# 책상은 목표에서 0.900 m 떨어져 있고 팔은 0.79 m 를 뻗는다 -- 책상에 팔이 닿으면서 구역
+# 밖인 자리가 있었다.  이제 **책상 중심** 원을 쓰고 반지름은 씬에서 계산한다.
+check("멈춤 요구가 사라졌다 -- 안 멈춰도 도착",
+      got(R.score(m(arrive={"stopped_ever": False, "reached": True})), "arrived"), True)
+check("구역에 못 들어오면 도착 실패",
+      got(R.score(m(arrive={"reached": False})), "arrived"), False)
+check("도착 못 하면 들고도 볼 시점이 없다",
+      got(R.score(m(arrive={"reached": False})), "held"), False)
+# **놓기 성공을 요구하지 않는다** (사용자 결정 2026-09-09).  주행을 다 하고 놓기만 실패한
+# 로봇도 거기까지 간 것은 인정한다.
+r = R.score(m(arrive={"reached": True, "held": True},
+              place={"reached_desk": True, "seat_mm": 40.0},
+              watch={"opened": False}))
+check("놓기를 실패해도 도착은 받는다", got(r, "arrived"), True)
+check("놓기를 실패해도 들고는 받는다", got(r, "held"), True)
+check("그래도 얹기는 실패", got(r, "placed"), False)
+# 「들고」는 구역 안에서 본다 -- 바닥으로 밀거나 던져 올린 판은 여기서 걸린다
+check("구역 안에서 한 번도 안 들었으면 0점",
+      got(R.score(m(arrive={"reached": True, "held": False})), "held"), False)
+# 옛 열쇠와 배점은 그대로여야 한다 (정답지 대조가 깨지지 않게)
+check("도착 배점 그대로", R.POINTS["arrived"], 3.0)
+check("들고 배점 그대로", R.POINTS["held"], 4.0)
+check("ARRIVE_ZONE_M 은 남아 있다", hasattr(R, "ARRIVE_ZONE_M"), True)
+
+
 if FAIL:
     print(f"실패 {len(FAIL)}건")
     for f in FAIL:

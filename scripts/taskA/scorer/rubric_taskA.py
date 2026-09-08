@@ -49,7 +49,30 @@ LIFT_OK_MM = 30.0
 # 있으면 통과" 라고만 적고 반경을 안 준다.  구역은 목표점을 중심으로 한 반경 0.10 m 원으로
 # 두고 -- 씬 파일이 `goal.tol_m` 로 이미 그 값을 싣고 온다 -- **로봇 발자국이 그 원에
 # 걸치기만 하면** 통과로 한다.  중심이 원 안에 들어와야 한다는 뜻이 아니다.
+# **더 이상 채점에 쓰이지 않는다** (사용자 결정 2026-09-09).
+#
+# 옛 규칙의 값이다 -- 우리가 정한 목표점 둘레 반경 0.10 m 원.  그러면 로봇 중심이 목표에서
+# 0.325 m 안에 있어야 했고, 책상은 목표에서 0.900 m 떨어져 있어 **책상에 팔이 닿으면서
+# 구역 밖인 자리가 있었다.**  거기 서서 바구니를 잘 놓아도 7 점을 못 받았다.
+#
+# 지금은 **책상 중심**을 원의 중심으로 쓰고 반지름을 씬에서 계산한다 (`|목표 − 책상|`,
+# 우리 씬 0.900 m).  `score_from_log.py` 의 도착 블록이 그 자리다.
+#
+# 지우지 않는 이유: 정답지(`expected/score_*.json`)의 `thresholds` 에 이 열쇠가 들어 있어
+# 지우면 대조가 깨지고, 왜 없어졌는지도 안 남는다.
 ARRIVE_ZONE_M = 0.10
+
+# 도착 구역 반지름의 한계 (m).  반지름은 씬에서 `|목표 − 책상|` 로 계산하는데, 씬이 책상을
+# 목표에서 멀리 두면 그만큼 커진다 -- 시험 삼아 책상을 4 m 옮겼더니 구역이 4.35 m 가 됐고,
+# 그러면 매장 절반이 「도착」이 된다.
+#
+# 위(1.5 m)는 **로봇이 서서 책상에 손이 닿을 수 있는 최대 거리**에서 왔다: 팔 도달 0.79 m
+# 에 발자국 절반(앞 0.225 / 뒤 0.403)을 더하면 1.2 m 남짓이고, 1.5 는 거기에 여유를 둔 것.
+# 아래(0.5 m)는 책상과 목표가 겹친 씬에서 구역이 0 이 되지 않게 하는 바닥이다.
+#
+# 우리 씬은 0.900 m 라 둘 사이에 편안히 들어온다.
+ARRIVE_ZONE_MIN_M = 0.50
+ARRIVE_ZONE_MAX_M = 1.50
 
 # 치수.  `FFW_SG2.usd` 의 base_mobile_assy.  앞뒤 -0.403~+0.225 m, 좌우 ±0.301 m 이고
 # 뒤 모서리가 중심에서 sqrt(0.403^2 + 0.301^2) = 0.503 m 뻗는다.
@@ -138,7 +161,10 @@ WHEN = {"no_hit": "판 내내", "picked": "한 번이라도", "arrived": "한 �
 
 LABEL = {"no_hit": "매장 가구와 부딪히지 않았는가",
          "picked": "바구니를 띄웠고 그때 그리퍼가 물었는가",
-         "arrived": "목적지에 도착해 멈췄는가",
+         # 2026-09-09: 멈춤을 더 이상 안 보므로 이름에서 뺐다.  구역도 「우리가 정한
+         # 목표점」에서 「책상 둘레」로 넓혔다.  열쇠(`arrived`)와 배점(3)은 그대로다 --
+         # 열쇠를 바꾸면 정답지와 대조가 깨진다.
+         "arrived": "목적지(책상 둘레)에 도착했는가",
          "held": "그 시점에 로봇이 들고 있었는가",
          "placed": "책상 상판에 얹었는가",
          "stayed": "손 뗀 뒤 6초 동안 잘 놓여 있었는가"}
@@ -266,32 +292,40 @@ def score(m, th=None):
     # 없는 것이지 측정이 안 된 것이 아니다 -- None 으로 두면 그 점수가 분모에서 빠져,
     # 멈추지 않는 쪽이 총점 비율에서 이득을 본다.
     reached = arrive.get("reached")
+    # **멈춤은 더 이상 안 본다** (사용자 결정 2026-09-09).  구역에 발자국이 걸친 적이
+    # 있으면 도착이다.  놓기 성공도 요구하지 않는다 -- 주행을 다 하고 놓기만 실패한 로봇도
+    # 거기까지 간 것은 인정한다.
     edge = arrive.get("nearest_edge_mm")
-    if arrive.get("stopped_ever") is False:
-        items["arrived"] = _item(False, "판 내내 멈춰 선 프레임이 하나도 없다"
-                                        + (f" (발자국이 구역에서 가장 가까웠던 것이 {edge:.0f} mm)"
-                                           if edge is not None else ""))
-    elif reached is None:
+    zone_m = arrive.get("zone_m")
+    if reached is None:
         items["arrived"] = _item(None, "베이스 자세를 못 읽었다")
     elif reached:
-        items["arrived"] = _item(True, "멈춰 선 채 로봇 발자국이 목표 구역"
-                                       f"(반경 {t['ARRIVE_ZONE_M'] * 1000:.0f} mm)에 걸쳤다")
+        items["arrived"] = _item(
+            True, "로봇 발자국이 책상 둘레 구역"
+                  + (f"(반경 {zone_m:.2f} m)" if zone_m else "") + "에 걸쳤다"
+                  + (f" -- 그 안에 있던 프레임 {arrive['in_zone_frames']}개"
+                     if arrive.get("in_zone_frames") else ""))
     else:
-        items["arrived"] = _item(False, "멈춰 섰지만 발자국이 목표 구역에 닿지 않았다"
-                                        + (f" (가장 가까웠던 것이 {edge:.0f} mm)"
-                                           if edge is not None else ""))
+        items["arrived"] = _item(False, arrive.get("why") or
+                                 ("발자국이 책상 둘레 구역에 닿지 않았다"
+                                  + (f" (가장 가까웠던 것이 {edge:.0f} mm)"
+                                     if edge is not None else "")))
 
     # ---- Sub 2#  그 시점에 로봇이 들고 있었는가 -----------------------------------------------
     # **여기는 「그리퍼」가 아니라 「로봇」이다.**  시트가 명시적으로 갈라 놓았다 -- 바퀴
     # 베이스에 얹어 나른 것도 통과다.  집기(`picked`)와 하나로 합치지 말 것.
+    # 「그 시점」은 **구역 안에 있던 동안**이다 (사용자 결정 2026-09-09).  놓는 프레임에
+    # 걸면 안 된다 -- 실측으로 「가장 잘 얹힌 프레임」이 손을 뗀 뒤인 판이 있었다.
+    # 뜻은 「가져갔는가」다: 바닥으로 밀거나 던져서 올린 로봇은 여기서 걸린다.
     held = arrive.get("held")
     if items["arrived"]["got"] is False:
-        items["held"] = _item(False, "도착해 멈춘 적이 없어 볼 시점이 없다")
+        items["held"] = _item(False, "구역에 들어온 적이 없어 볼 시점이 없다")
     elif items["arrived"]["got"] is None or held is None:
         items["held"] = _item(None, "그 프레임의 접촉을 못 읽었다")
     elif held:
-        items["held"] = _item(True, "로봇의 어느 부위가 바구니에 닿아 있었고, "
-                                    "로봇이 아닌 것에는 닿아 있지 않았다")
+        items["held"] = _item(True, "구역 안에 있는 동안 로봇이 바구니를 들고 있었다"
+                                    + (f" ({arrive['held_frames']}개 프레임)"
+                                       if arrive.get("held_frames") else ""))
     else:
         items["held"] = _item(False, arrive.get("why_held") or
                               "도착 시점에 로봇이 바구니를 들고 있지 않았다")

@@ -273,6 +273,19 @@ def measure_one(head, a, scene, th):
     corners = _corners(a["crate_pos"], a["crate_quat"])
     over_mm = _overhang_mm(corners, a["desk_pos"][:, :2], scene["desk"]["size"])
     on_top = (seat_mm >= 0.0) & (seat_mm <= th["SEAT_ON_MAX_MM"]) & (over_mm <= 500.0)
+
+    # **「제대로 얹혔다」를 한 곳에서만 정한다.**
+    #
+    # 「책상 상판에 얹었는가」와 「목적지에 도착했는가」가 둘 다 이 배열을 쓴다 (도착은
+    # 2026-09-09 결정으로 놓기 성공을 요구한다).  두 항목이 서로 다른 기준으로 「얹혔다」를
+    # 판단하면 "얹혔는데 도착이 아니다" 같은 답이 나온다.
+    #
+    # 높이와 자세를 **같은 프레임에서** 함께 본다 -- 뒤집어 엎어 놓아도 높이는 맞기 때문이다.
+    tilt_all = np.array([GG.tilt_deg(q) for q in a["crate_quat"]], dtype=np.float64)
+    seated = (seat_mm >= 0.0) & (seat_mm <= th["SEAT_ON_MAX_MM"])
+    upright = tilt_all <= th["TILT_OK_DEG"]
+    placed_ok = seated & upright
+
     c_speed = _speed(a["crate_pos"], a["t"])
     c_speed_reported = _reported_speed(a["crate_vel"])
 
@@ -346,6 +359,8 @@ def measure_one(head, a, scene, th):
         robot_touch, nonrobot = robot_touch[sl], nonrobot[sl]
         on_robot, on_grip, free = on_robot[sl], on_grip[sl], free[sl]
         held, gripped, on_top = held[sl], gripped[sl], on_top[sl]
+        tilt_all, seated, upright, placed_ok = (tilt_all[sl], seated[sl],
+                                                upright[sl], placed_ok[sl])
         seat_mm, over_mm, c_speed = seat_mm[sl], over_mm[sl], c_speed[sl]
         c_speed_reported = c_speed_reported[sl]
         corners = corners[sl]
@@ -385,42 +400,94 @@ def measure_one(head, a, scene, th):
     # 4 초 중앙 속도 85 mm/s, seed 1 은 56).  실제로 멈추는 것은 그 다음 조각인 놓기의
     # 첫 국면 -- 책상 쪽으로 제자리에서 도는 동안이고, 그때도 목표 구역 안에 있다.
     if True:                     # 도착과 「그 시점에 들고 있었나」
+        # ── 도착 구역은 **책상 중심**의 원이다 (사용자 결정 2026-09-09) ──────────────
+        #
+        # 예전에는 우리가 정한 목표점 반경 0.10 m 원이었다.  그러면 로봇 중심이 목표에서
+        # 0.325 m 안에 있어야 하는데, 책상은 목표에서 0.900 m 떨어져 있고 팔은 0.79 m 를
+        # 뻗는다 -- **책상에 팔이 닿으면서 구역 밖인 자리가 실제로 있었다**(기하로 확인).
+        # 거기 서서 바구니를 잘 놓아도 도착 3점 + 들고 4점을 못 받았다.
+        #
+        # 반지름은 **씬에서 계산한다**: `|목표 − 책상|`.  우리 씬에서 0.900 m 이고, 팔
+        # 도달 거리 0.79 m 보다 크므로 **책상에 놓을 수 있는 자리는 전부 원 안에 들어온다.**
+        # 상수로 박지 않는 이유는 책상이나 목적지가 움직이면 구역이 따라가야 하기 때문이다.
+        #
+        # `scene["goal"]["xy"]` 는 이제 **반지름을 구하는 데만** 쓰인다.  목표점 자체는
+        # 판정에 안 들어간다 -- 안 적어 두면 다음 사람이 "목표점을 왜 안 쓰지?" 하고 되돌린다.
         goal = np.asarray(scene["goal"]["xy"], dtype=np.float64)
-        zone = float(scene["goal"].get("tol_m") or th["ARRIVE_ZONE_M"])
+        desk_xy = np.asarray(scene["desk"]["pos"][:2], dtype=np.float64)
+        # **한계를 둔다.**  씬이 책상을 목표에서 멀리 두면 반지름이 그만큼 커진다 -- 시험
+        # 삼아 책상을 4 m 옮겼더니 구역이 4.35 m 가 됐고, 그러면 매장 절반이 「도착」이다.
+        #
+        # 위는 로봇이 서서 책상에 손이 닿을 수 있는 최대 거리에서 왔다: 팔 도달 0.79 m 에
+        # 발자국 절반(앞 0.225 / 뒤 0.403) 을 더하면 1.2 m 남짓이고, 1.5 m 면 넉넉하다.
+        # 아래는 책상과 목표가 겹친 씬에서 구역이 0 이 되지 않게 하는 바닥이다.
+        zone = float(np.clip(np.linalg.norm(goal - desk_xy),
+                             R.ARRIVE_ZONE_MIN_M, R.ARRIVE_ZONE_MAX_M))
         # **중심 거리가 아니라 발자국 겹침이다** (사용자 결정 2026-09-02).  규칙 자체는
         # `rubric_taskA.zone_gap_mm` 에 있다 -- 재는 일이 아니라 평가표가 정한 것이므로.
         yaw = _yaw(a["base_quat"])
-        edge_mm = np.array([R.zone_gap_mm(a["base_pos"][i, :2], yaw[i], goal, zone)
+        edge_mm = np.array([R.zone_gap_mm(a["base_pos"][i, :2], yaw[i], desk_xy, zone)
                             for i in range(len(yaw))], dtype=np.float64)
-        gap = np.linalg.norm(a["base_pos"][:, :2] - goal[None, :], axis=1)
+        in_zone = edge_mm <= 0.0
+        gap = np.linalg.norm(a["base_pos"][:, :2] - desk_xy[None, :], axis=1)
         b_speed = _speed(a["base_pos"], a["t"])
         b_speed_reported = _reported_speed(a["base_vel"])
-        stopped = b_speed < th["STOP_MM_S"]
-        out["arrive"] = {"stopped_ever": bool(stopped.any()),
-                         "zone_m": zone,
+
+        # ── 멈춤은 **안 본다** (사용자 결정 2026-09-09) ──────────────────────────────
+        #
+        # 예전에는 구역 안에서 베이스 속도가 10 mm/s 미만인 프레임이 하나라도 있어야 했다.
+        # 실측: 구역 안에서 계속 30 mm/s 이상이면 도착·들고 둘 다 실패해 7 점을 잃었다 --
+        # 바구니를 잘 놓아도 그랬다.  부드럽게 이어서 놓는 로봇이 손해를 보는 규칙이었다.
+        #
+        # 속도는 계속 재서 출력에 남긴다.  채점에 안 쓰지만 이의가 오면 그 숫자로 답한다
+        # (걸침을 재기만 하는 것과 같은 이유).
+        out["arrive"] = {"zone_m": zone, "zone_centre": "desk",
+                         "stopped_ever": bool((b_speed < th["STOP_MM_S"]).any()),
                          "nearest_edge_mm": float(edge_mm.min()),
                          "nearest_centre_m": float(gap.min()),
+                         "in_zone_frames": int(in_zone.sum()),
                          # 두 방법을 나란히 남긴다 -- 위 `_speed` 머리말의 실측이 이것이다
                          "speed_min_mm_s": float(b_speed.min()),
                          "speed_min_reported_mm_s": float(b_speed_reported.min())}
-        if stopped.any():
-            out["arrive"]["nearest_edge_mm"] = float(edge_mm[stopped].min())
-            out["arrive"]["best_centre_m"] = float(gap[stopped].min())
-            near = stopped & (edge_mm <= 0.0)
-            out["arrive"]["reached"] = bool(near.any())
-            if near.any():
-                out["arrive"]["held"] = bool((near & held).any())
-                if not (near & held).any():
-                    i = int(np.argmin(np.where(near, gap, np.inf)))
-                    out["arrive"]["why_held"] = (
-                        f"도착해 멈춘 프레임 {int(near.sum())}개 가운데 로봇이 바구니에 "
-                        f"닿아 있던 것이 없다 (가장 가까운 순간 로봇 {robot_touch[i]:.2f} N, "
-                        f"로봇 아닌 것 {nonrobot[i]:.2f} N)")
-        else:
-            out["arrive"]["reached"] = False
-            out["notes"].append(
-                f"판 내내 멈춰 선 프레임이 하나도 없다 (발자국이 구역에 가장 가까웠던 것이 "
-                f"{edge_mm.min():.0f} mm)")
+
+        # ── 도착은 **구역에 들어왔는가**만 본다 (사용자 결정 2026-09-09) ─────────────
+        #
+        # 한때 「놓기에 성공해야 도착도 인정」으로 갈 뻔했으나, 그러면 **주행을 다 하고
+        # 놓기만 실패한 로봇이 도착 3 점도 못 받는다.**  10 m 를 완주해 책상 앞까지 바구니를
+        # 들고 갔는데 마지막에 떨어뜨린 판이 그렇다.  주행 과제이므로 거기까지 간 것 자체를
+        # 인정한다 -- 사용자가 그 대가를 보고 되돌렸다.
+        #
+        # 그래서 도착에는 조건이 하나뿐이다: **발자국이 책상 둘레 구역에 걸친 적이 있는가.**
+        # 멈춤도, 놓기도 요구하지 않는다.
+        #
+        # 빈손으로 가도 3 점을 받는다.  「가져갔는가」는 아래 `held` 4 점이 따로 본다.
+        out["arrive"]["reached"] = bool(in_zone.any())
+        # 채점에는 안 쓰지만 남긴다 -- "구역 안에서 실제로 얹은 적이 있나" 는 이의가 왔을 때
+        # 답이 되는 숫자다.
+        out["arrive"]["placed_in_zone_frames"] = int((in_zone & placed_ok).sum())
+        if not in_zone.any():
+            out["arrive"]["why"] = (
+                f"책상 둘레 {zone:.2f} m 구역에 발자국이 한 번도 안 걸쳤다 "
+                f"(가장 가까웠던 것이 {edge_mm.min():.0f} mm)")
+
+        # ── 「그 시점에 들고 있었나」는 **구역 안에서** 본다 ─────────────────────────
+        #
+        # 놓는 프레임에 걸면 안 된다 -- 실측 2026-09-09: 「가장 잘 얹힌 프레임」이 손을 뗀
+        # 뒤일 수 있다 (seed 2 는 그 프레임에서 턱이 114.7 mm 벌어져 있었다).  거기 걸면
+        # 우리 정답 주행이 깨진다.
+        #
+        # 뜻은 「가져갔는가」다 -- 바닥으로 밀거나 던져서 올린 로봇은 여기서 걸린다.
+        held_in_zone = in_zone & held
+        out["arrive"]["held"] = bool(held_in_zone.any())
+        out["arrive"]["held_frames"] = int(held_in_zone.sum())
+        if in_zone.any() and not held_in_zone.any():
+            i = int(np.argmin(np.where(in_zone, gap, np.inf)))
+            out["arrive"]["why_held"] = (
+                f"구역 안 {int(in_zone.sum())} 프레임 가운데 로봇이 바구니에 닿아 있던 것이 "
+                f"없다 (가장 가까운 순간 로봇 {robot_touch[i]:.2f} N, "
+                f"로봇 아닌 것 {nonrobot[i]:.2f} N)")
+        elif not in_zone.any():
+            out["arrive"]["why_held"] = "구역에 들어온 적이 없어 볼 프레임이 없다"
 
     # ── 놓기 조각만 답할 수 있는 것 ─────────────────────────────────────────────────────
     if True:                     # 책상에 얹었나 + 손 뗀 뒤 6 초
@@ -437,10 +504,7 @@ def measure_one(head, a, scene, th):
             #
             # 기울기 문턱은 6 초 창과 **같은 상수**(`TILT_OK_DEG`)를 쓴다.  같은 물음에
             # 문턱을 두 개 두면 언젠가 갈라진다.
-            tilt_all = np.array([GG.tilt_deg(q) for q in a["crate_quat"]])
-            seated = (seat_mm >= 0.0) & (seat_mm <= th["SEAT_ON_MAX_MM"])
-            upright = tilt_all <= th["TILT_OK_DEG"]
-            good = seated & upright
+            good = placed_ok          # 위에서 한 번만 정했다 -- 도착도 같은 배열을 쓴다
             if good.any():
                 i = int(np.argmin(np.where(good, over_mm, np.inf)))
             else:

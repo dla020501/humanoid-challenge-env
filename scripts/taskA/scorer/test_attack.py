@@ -163,6 +163,89 @@ for _s in (0, 2, 6):
         FAIL.append("정답 주행 seed %d 가 %g/%g 이다 -- 21/21 이어야 한다"
                     % (_s, _r["total"], _r["possible"]))
 
+# ── 8. 도착 판정 (2026-09-09 결정) ───────────────────────────────────────────────────
+# 구역은 **책상 중심** 원이고 반지름은 씬에서 계산한다 (`|목표 − 책상|`, 우리 씬 0.900 m).
+# 멈춤도 놓기도 요구하지 않는다.
+
+
+def _items(a=None, head=None, scene=None):
+    a = {k: np.array(v, copy=True) for k, v in (a if a is not None else A).items()}
+    head = copy.deepcopy(head if head is not None else HEAD)
+    scene = scene if scene is not None else SCENE
+    if LC.problems(a, head, scene):
+        return None
+    return R.score(SFL.merge([SFL.measure_one(head, a, scene, TH)]))["items"]
+
+
+def want_item(label, key, want, **kw):
+    it = _items(**kw)
+    if it is None:
+        FAIL.append("%s: 채점 거부됐다 -- 점수가 나와야 한다" % label)
+    elif it[key]["got"] is not want:
+        FAIL.append("%s: %s 가 %s 인데 %s 여야 한다 (%s)"
+                    % (label, key, it[key]["got"], want, it[key]["why"][:60]))
+
+
+# 안 멈추고 지나가며 놓는다 -- 예전에는 도착 실패였다
+_dt = float(np.median(np.diff(A["t"])))
+_jit = np.zeros_like(A["base_pos"]); _jit[1::2, 1] = 0.200 * _dt      # 200 mm/s 로 계속 흔든다
+want_item("안 멈추고 놓는다", "arrived", True, a=mut(base_pos=A["base_pos"] + _jit))
+
+# 책상 둘레 구역 밖에 선다.
+#
+# 로봇을 옮기는 대신 **씬의 책상을 옮긴다.**  주행 경로가 매장을 가로지르고 남쪽 통로에서
+# y = -2.75 까지 내려가므로, 로봇을 어디로 밀어도 책상 옆을 스치거나 매장 밖으로 나간다.
+# 책상을 매장 반대편 구석에 두면 경로 전체가 확실히 구역 밖이다.
+_far_scene = copy.deepcopy(SCENE)
+_far_scene["desk"]["pos"] = [1.0, 7.0, _far_scene["desk"]["pos"][2]]
+want_item("책상 구역 밖에 선다", "arrived", False, scene=_far_scene)
+want_item("구역 밖이면 들고도 볼 시점이 없다", "held", False, scene=_far_scene)
+
+# 구역 안에 들어왔지만 놓기를 실패한다 -> **도착과 들고는 받는다** (2026-09-09 되돌림)
+_nodrop = {k: np.array(v, copy=True) for k, v in A.items()}
+# 바구니를 상판보다 30 cm 위로 -- 얹힌 적이 없다.  **손가락도 같이 올린다** (안 그러면
+# 「들고 있다」까지 같이 깨져서 무엇을 시험하는지 흐려진다).
+_nodrop["crate_pos"][:, 2] += 0.30
+_nodrop["grip_pos"][:, :, 2] += 0.30
+want_item("놓기를 실패해도 도착은 받는다", "arrived", True, a=_nodrop)
+want_item("놓기를 실패해도 들고는 받는다", "held", True, a=_nodrop)
+want_item("그래도 얹기는 실패", "placed", False, a=_nodrop)
+
+# 바구니를 한 번도 안 들고 구역에 간다 (손가락을 멀리 둔다)
+_never = {k: np.array(v, copy=True) for k, v in A.items()}
+_never["grip_pos"] = np.tile(_never["crate_pos"][:, None, :]
+                             + np.array([0.0, 0.0, 5.0], np.float32),
+                             (1, A["grip_pos"].shape[1], 1)).astype(A["grip_pos"].dtype)
+want_item("구역 안에서 한 번도 안 들었다", "held", False, a=_never)
+
+# 구역 반지름이 씬에서 계산되고, **한계 안에 머무는가.**
+#
+# 반지름은 `|목표 − 책상|` 인데 씬이 책상을 멀리 두면 그만큼 커진다 -- 시험 삼아 4 m 옮겼더니
+# 4.35 m 가 나왔고, 그러면 매장 절반이 「도착」이 된다.  그래서 위아래로 한계를 뒀다.
+_wide = copy.deepcopy(SCENE)
+_wide["desk"]["pos"] = [_wide["desk"]["pos"][0] + 4.0, _wide["desk"]["pos"][1],
+                        _wide["desk"]["pos"][2]]
+_m = SFL.measure_one(copy.deepcopy(HEAD), {k: np.array(v, copy=True) for k, v in A.items()},
+                     _wide, TH)
+if _m["arrive"]["zone_m"] > R.ARRIVE_ZONE_MAX_M + 1e-9:
+    FAIL.append("책상을 4 m 옮겼더니 구역이 %.2f m 다 -- 한계 %.2f m 를 넘으면 안 된다"
+                % (_m["arrive"]["zone_m"], R.ARRIVE_ZONE_MAX_M))
+_tight = copy.deepcopy(SCENE)
+_tight["desk"]["pos"] = [_tight["goal"]["xy"][0], _tight["goal"]["xy"][1],
+                         _tight["desk"]["pos"][2]]
+_m2 = SFL.measure_one(copy.deepcopy(HEAD), {k: np.array(v, copy=True) for k, v in A.items()},
+                      _tight, TH)
+if _m2["arrive"]["zone_m"] < R.ARRIVE_ZONE_MIN_M - 1e-9:
+    FAIL.append("책상과 목표가 겹친 씬에서 구역이 %.2f m 다 -- 바닥 %.2f m 아래로 가면 안 된다"
+                % (_m2["arrive"]["zone_m"], R.ARRIVE_ZONE_MIN_M))
+# 우리 씬은 한계 사이에 편안히 들어와야 한다
+_base = SFL.measure_one(copy.deepcopy(HEAD), {k: np.array(v, copy=True) for k, v in A.items()},
+                        SCENE, TH)
+if not (R.ARRIVE_ZONE_MIN_M < _base["arrive"]["zone_m"] < R.ARRIVE_ZONE_MAX_M):
+    FAIL.append("우리 씬의 구역이 %.2f m 로 한계에 붙어 있다 (%.2f ~ %.2f)"
+                % (_base["arrive"]["zone_m"], R.ARRIVE_ZONE_MIN_M, R.ARRIVE_ZONE_MAX_M))
+
+
 if FAIL:
     print("실패 %d건" % len(FAIL))
     for f in FAIL:
