@@ -349,6 +349,53 @@ if FAIL:
     for f in FAIL:
         print("  -", f)
     sys.exit(1)
+
+# ── 못 잰 것이 합격으로 넘어가지 않는가 (2026-09-09) ──────────────────────────────────
+#
+# NaN 은 어떤 비교에도 거짓이라 대개 저절로 닫힌다.  **닫히지 않는 자리가 둘 있었다.**
+#   ① `zone_gap_mm` 의 `max(0.0, d - zone)` -- NaN 이면 0.0 이 나오고 0.0 은 「걸쳤다」다
+#   ② 책상 밀림 게이트 `dm > DESK_OK_MM` -- NaN 이면 거짓이라 게이트를 통과한다
+# 둘 다 **참가자에게 유리한 쪽**으로 넘어간다.  그래서 아무도 모른다.
+import math                                                             # noqa: E402
+
+check("구역: 정상 입력은 그대로", R.zone_gap_mm([0, 0], 0.0, [2.0, 0.0], 0.9) > 0.0, True)
+for _bad in ("중심 x", "중심 y", "반지름", "베이스", "방위"):
+    _args = [[0.0, 0.0], 0.0, [2.0, 0.0], 0.9]
+    if _bad == "중심 x":   _args[2] = [float("nan"), 0.0]
+    if _bad == "중심 y":   _args[2] = [2.0, float("nan")]
+    if _bad == "반지름":   _args[3] = float("nan")
+    if _bad == "베이스":   _args[0] = [float("nan"), 0.0]
+    if _bad == "방위":     _args[1] = float("nan")
+    check(f"구역: {_bad} 가 NaN 이면 «구역 밖»", math.isinf(R.zone_gap_mm(*_args)), True)
+
+check("책상 밀림이 NaN 이면 얹음을 주지 않는다",
+      got(R.score(m(desk={"worst_mm": float("nan")})), "placed"), None)
+check("책상 밀림이 None 이면 얹음을 주지 않는다",
+      got(R.score(m(desk={"worst_mm": None})), "placed"), None)
+check("책상 밀림이 19 mm 면 얹음을 준다",
+      got(R.score(m(desk={"worst_mm": 19.0})), "placed"), True)
+check("책상 밀림이 21 mm 면 얹음이 실패다",
+      got(R.score(m(desk={"worst_mm": 21.0})), "placed"), False)
+
+# ── 붙박이 좌표가 장면 생성기와 갈라지지 않았는가 ─────────────────────────────────────
+#
+# `FIXTURE_DESK_XY` / `FIXTURE_GOAL_XY` 는 `taskA_layout` 의 같은 값을 **두 번째로 적은
+# 것**이다.  채점기가 배포 이미지 없이도 돌아야 해서 그렇게 뒀고(그쪽은 매장 USD 경로를
+# 잡느라 이미지를 본다), 두 번 적은 숫자는 언젠가 갈라진다.  이미지 안에서 돌 때만 대조한다.
+try:
+    import os as _os
+    import sys as _sys
+    _sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".."))
+    import taskA_layout as _L                                           # noqa: E402
+except Exception:                                                        # noqa: BLE001
+    print("  (붙박이 좌표 대조는 건너뜀 -- taskA_layout 이 배포 이미지를 본다)")
+else:
+    near("붙박이 책상 x", R.FIXTURE_DESK_XY[0], _L.desk_pos()[0], 1e-4)
+    near("붙박이 책상 y", R.FIXTURE_DESK_XY[1], _L.desk_pos()[1], 1e-4)
+    near("붙박이 목표 x", R.FIXTURE_GOAL_XY[0], _L.goal_pose()[0], 1e-4)
+    near("붙박이 목표 y", R.FIXTURE_GOAL_XY[1], _L.goal_pose()[1], 1e-4)
+
+
 print(f"전부 통과 ({len(R.ITEMS)}항목 {sum(R.POINTS.values()):.0f}점 × 시도 {R.ATTEMPTS} = "
       f"{sum(R.POINTS.values()) * R.ATTEMPTS:.0f}점)")
 print()

@@ -74,6 +74,29 @@ ARRIVE_ZONE_M = 0.10
 ARRIVE_ZONE_MIN_M = 0.50
 ARRIVE_ZONE_MAX_M = 1.50
 
+# 도착 구역의 중심(책상)과 반지름(|목표 − 책상|)은 **씬이 싣고 온다.**  그런데 그 씬이
+# 맞는지는 아무도 안 봤다.  아래 두 값이 그 대조 기준이다.
+#
+# 대조할 수 있는 이유: 책상과 목적지는 매장 붙박이라 **seed 와 무관하게 언제나 같은
+# 자리**다.  드리는 세 장면(0 / 2 / 6)에서 소수 넷째 자리까지 같은 것을 확인했다.
+# 반지름을 씬마다 계산하는 것도, 위의 한계 [0.50, 1.50] 도 실제로는 한 번도 안 물린다
+# -- 둘 다 방어용이다.
+#
+# **왜 대조해야 하나.**  이 두 값은 `scripts/taskA/destinations.json` 에서 오고, 그것은
+# 매장 USD 를 다시 구울 때마다 다시 뽑아야 하는 **파생 파일**이다.  잘못 뽑히면 구역이
+# 조용히 옮겨간다 -- 오류도 경고도 안 나고 점수는 그럴듯하게 나온다.  채점을 다 끝내고
+# 나서야 드러나고, 그때는 되돌릴 수 없다.  이 레포는 지도를 다시 뽑았다가 엉뚱한 건물이
+# 나온 적이 이미 있다.
+#
+# 값은 `taskA_layout.DESK_POS` / `GOAL_POSE` 와 같아야 한다.  **두 곳에 적은 숫자는
+# 언젠가 갈라지므로**, `test_rubric_taskA.py` 가 배포 이미지 안에서 둘을 대조한다.
+FIXTURE_DESK_XY = (0.1616, 1.6975)
+FIXTURE_GOAL_XY = (-0.1003, 2.5588)
+
+# 허용 오차.  **`DESK_OK_MM` 을 그대로 쓴다** -- "책상이 있어야 할 자리에 있나" 라는 같은
+# 물음이고, 같은 물음에 문턱을 두 개 두면 언젠가 갈라진다.  씬은 좌표를 소수 5 자리로
+# 반올림해 싣고(1e-5 m) 로그의 책상은 float32(약 6e-8 m)이므로, 20 mm 는 잡음의 2,000 배다.
+
 # 치수.  `FFW_SG2.usd` 의 base_mobile_assy.  앞뒤 -0.403~+0.225 m, 좌우 ±0.301 m 이고
 # 뒤 모서리가 중심에서 sqrt(0.403^2 + 0.301^2) = 0.503 m 뻗는다.
 # 로봇 기준 좌표계에서 +x 가 앞이다.
@@ -181,8 +204,12 @@ ENDED = ("ok", "dropped", "hit", "time_limit")
 def _item(got, why):
     """`got` 은 True / False / None.
 
-    **None 은 "잴 수 없었다" 이고, 0점이 아니라 그 항목의 배점을 분모에서 뺀다.**
-    안 잰 항목은 실패한 항목이 아니고, 둘을 같은 0 으로 합치는 총점은 거짓말이다.
+    **None 은 "잴 수 없었다" 이고 0 점이다.  분모는 그대로 배점이다.**
+
+    앞 판은 None 이면 분모에서도 뺐다.  「안 했다」와 「못 쟀다」를 가르려는 뜻이었는데,
+    가를 방법이 로그뿐이고 로그는 채점받는 쪽이 만든다 -- 실측 2026-09-08: 집기만 하고
+    멈추면 7/7 = 100 %, 놓기 토막만 내면 18/18 = 100 % 가 나왔다.  **덜 할수록 비율이
+    좋아졌다.**  사용자 결정으로 분모를 배점에 고정했다 (아래 `score` 의 주석).
     """
     return {"got": got, "why": why}
 
@@ -204,6 +231,20 @@ def zone_gap_mm(base_xy, base_yaw, goal_xy, zone_m=None, footprint=None):
     import math
     zone_m = ARRIVE_ZONE_M if zone_m is None else zone_m
     fp = ROBOT_FOOTPRINT if footprint is None else footprint
+
+    # **못 재면 「구역 밖」이다.  0 이 아니다.**
+    #
+    # 마지막 줄이 `max(0.0, d - zone_m)` 인데, `d` 가 NaN 이면 파이썬 `max` 가 **0.0 을
+    # 고른다** -- `nan > 0.0` 이 거짓이라 처음 값이 남기 때문이다.  그리고 0.0 은
+    # 「발자국이 구역에 딱 걸쳤다」= 합격이다.  실측 2026-09-09: 씬의 책상 좌표를 NaN 으로
+    # 두면 1,409 프레임 전부가 구역 안으로 잡혀 **도착 3 점 + 들고 4 점을 무조건 받았다.**
+    #
+    # 지금 씬으로 NaN 이 들어올 경로는 없다(좌표는 파일에서 읽고 없으면 상수로 떨어진다).
+    # 그래도 막는 이유는 **넘어지는 방향**이다 -- 못 잰 것이 합격이 되면 아무도 모른다.
+    if not all(math.isfinite(float(v)) for v in
+               (base_xy[0], base_xy[1], base_yaw, goal_xy[0], goal_xy[1], zone_m)):
+        return float("inf")
+
     dx = float(goal_xy[0]) - float(base_xy[0])
     dy = float(goal_xy[1]) - float(base_xy[1])
     c, s = math.cos(-float(base_yaw)), math.sin(-float(base_yaw))
@@ -343,7 +384,13 @@ def score(m, th=None):
         items["stayed"] = _item(False, why)
     else:
         seat = place.get("seat_mm")
+        import math
         dm = desk.get("worst_mm")
+        # **NaN 은 None 과 같이 다룬다.**  `nan > DESK_OK_MM` 은 거짓이라, 그냥 두면
+        # 「책상이 얼마나 밀렸는지 모르는」 판이 밀림 검사를 통과해 버린다 -- 위
+        # `zone_gap_mm` 과 같은 종류의 새는 구멍이고, 방향도 같다(유리한 쪽).
+        if dm is not None and not math.isfinite(float(dm)):
+            dm = None
         if place.get("reached_desk") is False:
             items["placed"] = _item(False, "바구니가 책상 근처에 온 적이 없다")
         elif seat is None:

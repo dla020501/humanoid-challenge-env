@@ -38,6 +38,8 @@
 
 import numpy as np
 
+import rubric_taskA as R
+
 # 채점기가 읽는 갈래 전부.  `Task-A/eval_kit/make_demos.py` 의 `SCORE_FIELDS` 와 같은
 # 목록이고, 하나라도 없으면 채점이 성립하지 않는다.
 REQUIRED = ("t", "base_pos", "base_quat", "base_vel",
@@ -74,13 +76,77 @@ def _finite_name(a, key):
     return int(bad.sum())
 
 
+def scene_problems(a, scene):
+    """**씬이 말이 되는 물건인가.**  이상한 점의 목록.  비어 있으면 된다.
+
+    이 검사가 왜 있나 -- 채점기는 로그(로봇이 어디 있었나)는 전수로 검사하면서 **씬(책상이
+    어디 있나)은 그냥 믿고 있었다.**  그런데 도착 항목 7 점이 통째로 씬의 책상 좌표 위에
+    서 있다.  구역의 중심이 책상이고 반지름이 |목표 − 책상| 이기 때문이다.
+
+    씬이 틀리는 길은 공격이 아니라 **우리 실수**다.  두 좌표는
+    `scripts/taskA/destinations.json` 에서 오고, 그것은 매장 USD 를 다시 구울 때마다 다시
+    뽑아야 하는 파생 파일이다.  40 cm 어긋나게 뽑히면 구역이 40 cm 옮겨가는데 **오류도
+    경고도 안 나고 점수는 그럴듯하게 나온다.**  채점이 다 끝난 뒤에야 드러난다.
+
+    대조할 수 있는 이유는 책상과 목적지가 **매장 붙박이**라서다 -- seed 가 무엇이든 같은
+    자리이고, 세 장면에서 소수 넷째 자리까지 같은 것을 확인했다.
+
+    로그의 책상과도 맞춰 본다.  둘이 어긋나면 씬과 로그가 서로 다른 판의 것이다.
+    """
+    import math
+    out = []
+    if not isinstance(scene, dict):
+        return ["씬이 없다 -- 도착 판정은 책상 좌표 없이 성립하지 않는다"]
+
+    want = {"desk": R.FIXTURE_DESK_XY, "goal": R.FIXTURE_GOAL_XY}
+    got = {}
+    for key in ("desk", "goal"):
+        blk = scene.get(key)
+        if not isinstance(blk, dict):
+            out.append("씬에 '%s' 가 없다 -- 도착 구역을 정할 수 없다" % key)
+            continue
+        # 책상은 pos(3), 목적지는 xy(2) 로 실려 온다.  둘 다 없으면 그것도 이상이다.
+        xy = blk.get("pos") or blk.get("xy")
+        if xy is None or len(xy) < 2:
+            out.append("씬의 %s 에 좌표가 없다" % key)
+            continue
+        try:
+            x, y = float(xy[0]), float(xy[1])
+        except (TypeError, ValueError):
+            out.append("씬의 %s 좌표를 숫자로 읽을 수 없다: %r" % (key, xy[:2]))
+            continue
+        if not (math.isfinite(x) and math.isfinite(y)):
+            out.append("씬의 %s 좌표가 숫자가 아니다 (NaN·무한대)" % key)
+            continue
+        got[key] = (x, y)
+        d = math.dist((x, y), want[key])
+        if d > R.DESK_OK_MM / 1000.0:
+            out.append("씬의 %s 가 매장 붙박이 자리에서 %.3f m 어긋나 있다 "
+                       "-- 있어야 할 곳 (%.4f, %.4f), 씬이 말하는 곳 (%.4f, %.4f) "
+                       "(허용 %.0f mm).  destinations.json 을 다시 뽑았나?"
+                       % (key, d, want[key][0], want[key][1], x, y, R.DESK_OK_MM))
+
+    # 씬의 책상 vs 로그 첫 프레임의 책상.  같은 판의 것이어야 한다.
+    if "desk" in got and isinstance(a, dict) and "desk_pos" in a:
+        dp = np.asarray(a["desk_pos"], dtype=np.float64)
+        if dp.ndim == 2 and dp.shape[0] > 0 and np.isfinite(dp[0, :2]).all():
+            d = float(np.hypot(*(dp[0, :2] - np.asarray(got["desk"]))))
+            if d > R.DESK_OK_MM / 1000.0:
+                out.append("씬이 말하는 책상과 로그 첫 프레임의 책상이 %.3f m 어긋난다 "
+                           "-- 씬과 로그가 서로 다른 판의 것인가 (허용 %.0f mm)"
+                           % (d, R.DESK_OK_MM))
+    return out
+
+
 def problems(a, head=None, scene=None):
     """이 로그를 채점해도 되는가.  이상한 점의 목록을 돌려준다 -- 비어 있으면 된다.
 
-    `head` 와 `scene` 은 지금 쓰지 않지만 자리를 남겨 둔다.  나중에 "이 로그가 이 씬의
-    것인가" 를 대조하게 되면 여기가 그 자리다.
+    `scene` 을 주면 씬도 같이 본다 (`scene_problems`).  `head` 는 아직 안 쓰지만 자리를
+    남겨 둔다 -- 나중에 머리말과 배열을 대조하게 되면 여기가 그 자리다.
     """
     out = []
+    if scene is not None:
+        out += scene_problems(a, scene)
 
     # ── 있어야 할 것이 다 있나 ──────────────────────────────────────────────────────
     missing = [k for k in REQUIRED if k not in a]

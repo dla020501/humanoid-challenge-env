@@ -193,13 +193,33 @@ want_item("안 멈추고 놓는다", "arrived", True, a=mut(base_pos=A["base_pos
 
 # 책상 둘레 구역 밖에 선다.
 #
-# 로봇을 옮기는 대신 **씬의 책상을 옮긴다.**  주행 경로가 매장을 가로지르고 남쪽 통로에서
-# y = -2.75 까지 내려가므로, 로봇을 어디로 밀어도 책상 옆을 스치거나 매장 밖으로 나간다.
-# 책상을 매장 반대편 구석에 두면 경로 전체가 확실히 구역 밖이다.
-_far_scene = copy.deepcopy(SCENE)
-_far_scene["desk"]["pos"] = [1.0, 7.0, _far_scene["desk"]["pos"][2]]
-want_item("책상 구역 밖에 선다", "arrived", False, scene=_far_scene)
-want_item("구역 밖이면 들고도 볼 시점이 없다", "held", False, scene=_far_scene)
+# **씬의 책상이 아니라 로봇을 옮긴다.**  앞 판은 책상을 매장 반대편 구석에 두었는데, 그
+# 씬은 이제 위생 검사가 거부한다 -- 책상은 매장 붙박이라 거기 있을 수 없기 때문이다
+# (`log_check.scene_problems`).  시험이 잡으려는 것은 「구역 밖에 선 로봇」이지 「말이 안
+# 되는 씬」이 아니므로, 옮겨야 할 것은 로봇 쪽이다.
+#
+# 앞 판의 주석은 "경로가 남쪽 통로에서 y = -2.75 까지 내려가므로 로봇을 어디로 밀어도
+# 책상을 스치거나 매장 밖으로 나간다" 고 적었다.  **틀렸다.**  이동 격자를 전수로 훑어
+# 확인했다 (2026-09-09):
+#
+#     이동 (-1.50, -3.00) m
+#       구역 밖 여유 1.43 m   (발자국이 닿는 한계 1.403 m 를 그만큼 넘어선다)
+#       매장 안 여유 1.34 m   (위생 검사의 범위 + 2 m 안에 그만큼 남는다)
+#       옮긴 뒤 경로  x -11.76 ~ -1.51,  y -5.69 ~ -0.44
+#
+# 둘 중 나쁜 쪽이 1.34 m 로 가장 큰 이동을 골랐다 -- 문턱을 아슬아슬하게 넘는 시험은
+# 나중에 문턱이 조금만 움직여도 조용히 무의미해진다.
+#
+# 바구니와 손가락도 같이 옮긴다.  로봇만 옮기면 손이 바구니에서 3 m 떨어져 「들고 있다」가
+# 기하로 깨지고, 그러면 이 시험이 구역을 재는 것인지 파지를 재는 것인지 흐려진다.
+_far = {k: np.array(v, copy=True) for k, v in A.items()}
+for _k in ("base_pos", "crate_pos"):
+    _far[_k][:, 0] -= 1.50
+    _far[_k][:, 1] -= 3.00
+_far["grip_pos"][:, :, 0] -= 1.50
+_far["grip_pos"][:, :, 1] -= 3.00
+want_item("책상 구역 밖에 선다", "arrived", False, a=_far)
+want_item("구역 밖이면 들고도 볼 시점이 없다", "held", False, a=_far)
 
 # 구역 안에 들어왔지만 놓기를 실패한다 -> **도착과 들고는 받는다** (2026-09-09 되돌림)
 _nodrop = {k: np.array(v, copy=True) for k, v in A.items()}
@@ -244,6 +264,77 @@ _base = SFL.measure_one(copy.deepcopy(HEAD), {k: np.array(v, copy=True) for k, v
 if not (R.ARRIVE_ZONE_MIN_M < _base["arrive"]["zone_m"] < R.ARRIVE_ZONE_MAX_M):
     FAIL.append("우리 씬의 구역이 %.2f m 로 한계에 붙어 있다 (%.2f ~ %.2f)"
                 % (_base["arrive"]["zone_m"], R.ARRIVE_ZONE_MIN_M, R.ARRIVE_ZONE_MAX_M))
+
+
+# ── 씬을 아무도 안 보고 있었다 (2026-09-09) ────────────────────────────────────────────
+#
+# 도착 7 점이 통째로 **씬의 책상 좌표** 위에 서 있다 -- 구역의 중심이 책상이고 반지름이
+# |목표 − 책상| 이기 때문이다.  그런데 위생 검사는 로그만 보고 씬은 그냥 믿고 있었다
+# (그 함수의 주석이 "`scene` 은 지금 쓰지 않지만 자리를 남겨 둔다" 였다).
+#
+# 이것은 참가자 공격이 아니다 -- 시뮬 환경을 우리가 내주므로 참가자는 씬을 못 건드린다.
+# **우리 실수**를 잡는 검사다.  두 좌표는 `destinations.json` 에서 오고 그것은 매장 USD 를
+# 다시 구울 때마다 다시 뽑아야 하는 파생 파일이다.  잘못 뽑히면 구역이 조용히 옮겨가고
+# 오류도 경고도 안 난다.
+def want_refused(label, scene=None, a=None):
+    _a = {k: np.array(v, copy=True) for k, v in (a if a is not None else A).items()}
+    probs = LC.problems(_a, copy.deepcopy(HEAD), scene if scene is not None else SCENE)
+    if not probs:
+        FAIL.append("%s: 채점을 거부해야 하는데 통과시켰다" % label)
+
+
+def want_accepted(label, scene=None, a=None):
+    _a = {k: np.array(v, copy=True) for k, v in (a if a is not None else A).items()}
+    probs = LC.problems(_a, copy.deepcopy(HEAD), scene if scene is not None else SCENE)
+    if probs:
+        FAIL.append("%s: 멀쩡한데 거부했다 -- %s" % (label, probs[0][:70]))
+
+
+want_accepted("진짜 씬은 통과한다")
+
+# 열쇠가 없다.  **앞 판은 여기서 KeyError 로 죽었다** -- 채점 거부가 아니라 프로그램이
+# 멈춘다.  여러 판을 이어 채점하는 중이면 거기서 전부 멈추고, 앞 결과가 저장 전이면 잃는다.
+for _k in ("desk", "goal"):
+    _gone = copy.deepcopy(SCENE); _gone.pop(_k)
+    want_refused("씬에 '%s' 가 없다" % _k, scene=_gone)
+_empty = copy.deepcopy(SCENE); _empty["desk"] = {}
+want_refused("씬의 desk 에 좌표가 없다", scene=_empty)
+
+# NaN.  이것이 앞 판에서 **도착 3 점 + 들고 4 점을 무조건 주던** 입력이다 (1,409 프레임
+# 전부가 구역 안으로 잡혔다).  이제 두 겹으로 막힌다 -- 위생 검사가 거부하고, 뚫려도
+# `zone_gap_mm` 이 inf 를 낸다.
+_nan = copy.deepcopy(SCENE); _nan["desk"]["pos"] = [float("nan")] * 3
+want_refused("씬의 책상 좌표가 NaN", scene=_nan)
+_nang = copy.deepcopy(SCENE); _nang["goal"]["xy"] = [float("nan")] * 2
+want_refused("씬의 목표 좌표가 NaN", scene=_nang)
+# 뚫렸다 치고 채점기 자신도 닫히는가 (두 겹의 두 번째)
+_m3 = SFL.measure_one(copy.deepcopy(HEAD), {k: np.array(v, copy=True) for k, v in A.items()},
+                      _nan, TH)
+if _m3["arrive"]["reached"] or _m3["arrive"]["held"]:
+    FAIL.append("씬이 NaN 인데 도착/들고가 참이다 -- zone_gap_mm 이 아직 새고 있다")
+
+# 붙박이 자리에서 벗어난 책상·목표.  **이것이 진짜 잡고 싶은 것**이다 -- NaN 은 눈에 띄기라도
+# 하지만, 「정상처럼 보이는 틀린 숫자」는 오류도 경고도 없이 구역만 조용히 옮긴다.
+for _d in (0.05, 0.40, 3.00):
+    _off = copy.deepcopy(SCENE)
+    _off["desk"]["pos"] = [SCENE["desk"]["pos"][0], SCENE["desk"]["pos"][1] + _d,
+                           SCENE["desk"]["pos"][2]]
+    want_refused("책상이 붙박이 자리에서 %.2f m 어긋났다" % _d, scene=_off)
+_offg = copy.deepcopy(SCENE)
+_offg["goal"]["xy"] = [SCENE["goal"]["xy"][0], SCENE["goal"]["xy"][1] + 0.40]
+want_refused("목표가 붙박이 자리에서 0.40 m 어긋났다", scene=_offg)
+
+# 문턱 바로 아래는 통과해야 한다 -- 좌표를 소수 5 자리로 반올림해 싣는 것 때문에 멀쩡한
+# 판이 거부되면 안 된다.  허용치는 `DESK_OK_MM` 을 그대로 쓴다 (같은 물음, 같은 문턱).
+_ok = copy.deepcopy(SCENE)
+_ok["desk"]["pos"] = [SCENE["desk"]["pos"][0], SCENE["desk"]["pos"][1] + 0.019,
+                      SCENE["desk"]["pos"][2]]
+want_accepted("책상이 19 mm 어긋난 것은 봐준다", scene=_ok)
+
+# 씬과 로그가 서로 다른 판의 것이다.
+_mis = {k: np.array(v, copy=True) for k, v in A.items()}
+_mis["desk_pos"][:, 1] += 0.50
+want_refused("씬의 책상과 로그의 책상이 0.50 m 어긋난다", a=_mis)
 
 
 if FAIL:
