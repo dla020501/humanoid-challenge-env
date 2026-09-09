@@ -69,6 +69,15 @@ parser.add_argument("--interp", action="store_true",
 parser.add_argument("--frames", type=int, default=0, help="앞에서 N 프레임만 튼다 (0 = 전부).")
 parser.add_argument("--start-hold", type=float, default=1.0,
                     help="첫 프레임 자세로 몇 초 세워 둔 뒤 시작하나 (상품 정착 시간).")
+parser.add_argument("--q-free-close", type=float, default=None, metavar="RAD",
+                    help="빈손으로 그리퍼를 끝까지 닫았을 때 서는 관절값. 채점기가 헛집기를 "
+                         "거르는 데 쓴다. 판 안에서 재면 그 동작이 파지를 무너뜨리므로 "
+                         "`--measure-q-free` 로 따로 재서 넣는다.")
+parser.add_argument("--measure-q-free", action="store_true",
+                    help="빈손 닫힘 위치만 재고 끝낸다. 이 값을 --q-free-close 로 넘긴다.")
+parser.add_argument("--trace", default=None, metavar="DIR",
+                    help="채점용 관측 트레이스를 이 폴더에 남긴다 (trace.jsonl · scene.json · "
+                         "decode.json). taskC/scorer/score_from_trace.py 가 읽는다.")
 parser.add_argument("--summary-json", default=None, metavar="FILE.json",
                     help="재생 결과 요약(상품 이동·들림·스캐너 접근·최종 자리)을 JSON 으로 저장한다.")
 parser.add_argument("--list", action="store_true", help="들어 있는 판을 찍고 끝낸다.")
@@ -239,6 +248,10 @@ from taskC import taskC_scanner as scan_look                          # noqa: E4
 from taskC import taskC_beam as beam                                  # noqa: E402
 
 
+# QR 을 스캐너캠 그림으로 읽는다. 끄면 기하 판정만 남는다(v5-3c 와 같은 상태).
+_QR_IMG = os.environ.get("TASKC_QR_IMG", "1") == "1"
+
+
 def _cam(name):
     """수집 파이프라인과 같은 형태: 로봇 prim 밑에 붙이지 않고 독립 prim 으로 두고,
     매 스텝 링크 자세에서 계산한 월드 자세를 넣는다(`place_cameras`).
@@ -377,6 +390,10 @@ class World(InteractiveSceneCfg):
     right_wrist_cam = _cam("right_wrist_cam")
 
     def __post_init__(self):
+        if _QR_IMG:
+            # 판독용 스캐너캠. 켤 때만 만든다 -- 800x500 을 매 판 들고 다닐 까닭이 없다.
+            from taskC.scorer.qr_decode import scan_cam_cfg
+            self.scan_cam = scan_cam_cfg()
         spos = L.robot_to_world(L.SCANNER_HOLD_POS)
         self.scanner = RigidObjectCfg(
             prim_path="{ENV_REGEX_NS}/Scanner",
@@ -487,6 +504,18 @@ def main():
             recog = beam.Recognizer(beam.load_tiles(), log=_log)
         except Exception as _eb:
             _log("빔 자국 준비 불가: %r" % (_eb,))
+    qr = None
+    if _QR_IMG and recog is not None:
+        try:
+            from taskC.scorer.qr_decode import QrReader
+            _expect = {p["slug"]: P.qr_code(p["slug"]) for p in PRODUCTS}
+            qr = QrReader(scene["scan_cam"], _expect, log=_log)
+            _log("QR 이미지 판독 = 예선 횡이탈 %.1fmm(x%.1f) 안에서만 디코드,"
+                 " 읽히면 %.0f초 쉼"
+                 % (float(os.environ.get("TASKC_RECOG_R_MM", "6")) * qr.gate_mul,
+                    qr.gate_mul, qr.cooldown))
+        except Exception as _eq:
+            _log("QR 이미지 판독 준비 불가: %r" % (_eq,))
 
     def _beam_pose():
         """세계 좌표의 빔 원점·방향·오른쪽축. 용접된 스캐너 자세에서 나온다.
@@ -685,6 +714,22 @@ def main():
     scene.write_data_to_sim()
     for _ in range(int(args_cli.start_hold / PHYSICS_DT)):
         step(q0)
+    if args_cli.measure_q_free:
+        # 빈손 닫힘만 재고 끝낸다. **판을 돌리는 실행과 섞지 않는다** -- 이 동작 자체가
+        # 물리를 밟아 뒤의 파지를 바꾼다(실측: 들림 208 -> 19 mm, QR 3회 -> 0회).
+        _qc = q0.copy()
+        _qc[IL] = float(max(1.0, float(np.max(CMD[:, IL]))))
+        _prev = None
+        for _ in range(int(2.0 / PHYSICS_DT)):
+            step(_qc)
+            _now = float(robot.data.joint_pos[0][rec_ids].cpu().numpy()[IL])
+            if _prev is not None and abs(_now - _prev) < 1e-7:
+                break
+            _prev = _now
+        print("[Q_FREE] 빈손 닫힘 위치 = %.6f rad  (--q-free-close 로 넘겨라)" % _prev,
+              flush=True)
+        simulation_app.close()
+        raise SystemExit(0)
     # V4-126: 정착 완료 -- 여기서부터 손에 용접한다. 상대 자세는 다음 걸음에 1 회 잰다.
     weld["on"] = True
 
@@ -701,6 +746,12 @@ def main():
     t_wall = None
     import time as _time
     t_wall = _time.time()
+    trace = None
+    if args_cli.trace:
+        from taskC.scorer.trace_write import TraceWriter    # noqa: E402
+        trace = TraceWriter(args_cli.trace, SCENE, SCENE["products"], log=_log)
+        trace.q_free_close = args_cli.q_free_close
+        _log("[TRACE] %s 에 관측을 남긴다" % args_cli.trace)
     print(f"[재생] 시작 -- 첫 프레임 자세로 {args_cli.start_hold:.1f} 초 세운 뒤 튼다\n", flush=True)
     for k in range(N):
         if k in ph_at:
@@ -760,10 +811,52 @@ def main():
                     _ul = np.cross(_dl, _rl)
                     _nq = sh.update(_o, _dl, _rl, _ul / max(np.linalg.norm(_ul), 1e-12), k)
                     _lit, _fired = recog.step(_b0, _bd, _pp, _R, _nq, k)
+                    if qr is not None:
+                        # 넓은 예선 -> 그 프레임만 그림 판독 -> 읽히면 냉각.
+                        _in, _glat, _gd = recog.gate(_b0, _bd, _pp, _R, qr.gate_mul)
+                        _hit = qr.try_read(sim, _b0, _bd, PRODUCTS[cur_slot]["slug"],
+                                           k / REC_HZ, _in)
+                        if _hit is not None and _hit[1]:
+                            _fired = True
+                            if trace is not None:
+                                trace.note_decode(cur_slot, PRODUCTS[cur_slot]["slug"], k,
+                                                  _glat, _gd, text=_hit[0])
+                    elif _fired and trace is not None:
+                        _tw = _pp + _R @ recog._tpos
+                        _v = _tw - _b0
+                        _al = float(_v @ _bd)
+                        trace.note_decode(cur_slot, PRODUCTS[cur_slot]["slug"], k,
+                                          float(np.linalg.norm(_v - _bd * _al)) * 1000.0,
+                                          _al * 1000.0, by="geometry")
                     if _fired and led is not None:
                         led.blink()
                     if band_light is not None:
                         band_light.set_hit(_lit, k)
+        if trace is not None:
+            _po_all = [scene[f"p_{i}"] for i in range(len(PRODUCTS))]
+            _o3 = origin.cpu().numpy()
+            # 채점기는 장면 파일(로봇 좌표)에서 상판·띠를 재므로 **로봇 좌표로 넘긴다.**
+            # 세계 좌표로 주면 띠 판정이 언제나 밖으로 떨어진다.
+            _poses = [(L.world_to_robot(tuple(float(v) for v in
+                                              (_x.data.root_pos_w[0].cpu().numpy() - _o3))),
+                       L.quat_world_to_robot(tuple(float(v) for v in
+                                                   _x.data.root_quat_w[0].cpu().numpy())))
+                      for _x in _po_all]
+            # 속도와 방향은 **벡터**라 회전만 걸려야 한다. `world_to_robot` 은 점 변환이라
+            # 평행이동이 함께 걸리므로 원점의 상을 빼서 지운다.
+            _z0r = np.asarray(L.world_to_robot((0.0, 0.0, 0.0)), dtype=float)
+
+            def _vec_to_robot(v):
+                return (np.asarray(L.world_to_robot(tuple(float(x) for x in v)),
+                                   dtype=float) - _z0r)
+
+            _vels = [_vec_to_robot(_x.data.root_lin_vel_w[0].cpu().numpy()) for _x in _po_all]
+            _wb0, _wbd, _ = _beam_pose()
+            _tb0 = L.world_to_robot(tuple(float(v) for v in _wb0))
+            _tbd = _vec_to_robot(_wbd)
+            _qnow = robot.data.joint_pos[0][rec_ids].cpu().numpy()
+            trace.tick(k / REC_HZ, cur_slot, _poses, _vels, _tb0, _tbd,
+                       float(CMD[k][IL]), float(_qnow[IL]))
         for i in range(len(PRODUCTS)):
             pr = prod_pos_r(i)
             lift = (pr[2] - start_pos[i][2]) * 1000.0
@@ -777,6 +870,10 @@ def main():
             el = _time.time() - t_wall
             print(f"[재생] {k / REC_HZ:6.1f}초 / {N / REC_HZ:.1f}초  (실시간 대비 x{(k / REC_HZ) / max(el, 1e-6):.2f})", flush=True)
 
+    if trace is not None:
+        if qr is not None:
+            trace.qr = qr.report()
+        trace.close(grade=META.get("grade"))
     print("\n[재생] 끝. 상품별 결과 (로봇 좌표, 기록의 첫 프레임 기준)", flush=True)
     result = {"episode": os.path.basename(EPISODE), "frames": int(N), "hz": REC_HZ, "products": []}
     for i, d in enumerate(PRODUCTS):

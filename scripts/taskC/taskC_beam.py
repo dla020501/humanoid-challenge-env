@@ -387,6 +387,26 @@ class Recognizer:
         self._armed = True
         self._log("v5-3e 슬롯 %d(%s) 타일 갱신 -- 인식 재무장" % (int(slot), slug))
 
+    def gate(self, b0, bd, prod_pos, prod_rot, mul):
+        """이미지 판독기를 켤 만한 자리인가. `(들어왔나, 횡이탈mm, 거리mm)`.
+
+        위 판정과 **같은 기하**를 쓰되 횡이탈 한계만 `mul` 배로 넓힌다. 판독기를 계속
+        돌리면 프레임마다 스캐너캠을 렌더해야 해서 비싸고, 실물 스캐너도 늘 읽고 있지
+        않다. 그래서 넓은 예선을 두고 그 안에 들어온 프레임만 실제로 그림을 읽는다.
+
+        거리·면 조건은 넓히지 않는다. 그 둘은 여유가 아니라 스캐너가 물리적으로 볼 수
+        있는 창이라서, 넓히면 볼 수 없는 자리에서 셔터를 누르게 된다.
+        """
+        tw = prod_pos + prod_rot @ self._tpos
+        tn = prod_rot @ self._tnrm
+        v = tw - b0
+        al = float(v @ bd)
+        lat = float(np.linalg.norm(v - bd * al)) * 1000.0
+        ok = (lat <= self._r_mm * float(mul)
+              and self._d_min <= al * 1000.0 <= self._d_max
+              and float(tn @ (-bd)) >= self._face)
+        return ok, lat, al * 1000.0
+
     def step(self, b0, bd, prod_pos, prod_rot, n_quads, frame):
         """한 프레임. `(지금 켜져 있나, 이번에 새로 발화했나)` 를 돌려준다.
 

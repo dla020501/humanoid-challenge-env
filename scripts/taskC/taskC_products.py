@@ -118,6 +118,16 @@ def store_usd() -> _pathlib.Path:
     return cands[0]
 
 
+def qr_code(slug: str) -> str:
+    """이 상품 QR 에 새겨진 문자열 -- info.json 의 code.
+
+    이미지 판독기가 디코드 결과를 이것과 견준다. 기하로 겨눔만 맞으면 되는 것이 아니라
+    **그 상품의 코드가 읽혀야** 판독으로 친다.
+    """
+    with open(product_dir(slug) / "info.json", encoding="utf-8") as fh:
+        return str(_json.load(fh)["code"])
+
+
 def size_mm(slug: str):
     """(x, y, z) mm -- info.json 의 size. 상품 프레임 축 순서 그대로다."""
     with open(product_dir(slug) / "info.json", encoding="utf-8") as fh:

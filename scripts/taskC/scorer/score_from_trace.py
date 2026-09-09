@@ -72,10 +72,36 @@ def main(trace_path, scene_path, decode_path, out_path=None):
     if not tr:
         raise SystemExit("트레이스가 비어 있다")
 
-    target = scene["products"][0]["slug"]
     specs = build_products(scene, dec)
-    # 기대 코드: 대상 상품만 채점 대상이다(평가안은 3개 전부지만 트레이스는 대상만 조작된다)
-    decoded_ok = any(d.get("ok") for d in dec.get("decode", []))
+    slugs = [p["slug"] for p in scene["products"]]
+
+    # 지금 다루는 상품은 프레임마다 바뀐다 -- 트레이스가 슬롯을 함께 남긴다.
+    # 슬롯이 없는 옛 트레이스는 종전대로 첫 상품만 대상으로 본다.
+    def target_of(row):
+        sl = row.get("slot")
+        if sl is None:
+            return slugs[0]
+        sl = int(sl)
+        return slugs[sl] if 0 <= sl < len(slugs) else None
+
+    # 판독 성공은 **슬롯별로** 본다. 한 상품이 읽혔다고 다른 상품까지 읽힌 것이 아니다.
+    decoded_slugs = set()
+    decoded_text = {}      # 슬러그 -> 스캐너캠에서 실제로 읽힌 문자열
+    decoded_by = {}        # 슬러그 -> "image" | "geometry"
+    for d in dec.get("decode", []):
+        if not d.get("ok"):
+            continue
+        if d.get("slug"):
+            sg = d["slug"]
+        elif d.get("slot") is not None and 0 <= int(d["slot"]) < len(slugs):
+            sg = slugs[int(d["slot"])]
+        else:
+            sg = slugs[0]
+        decoded_slugs.add(sg)
+        decoded_by[sg] = d.get("by", "geometry")
+        if d.get("text") is not None:
+            decoded_text[sg] = str(d["text"])
+    decoded_ok = bool(decoded_slugs)
 
     cfg = ScoreConfig()
     state = {"i": 0}
@@ -93,21 +119,23 @@ def main(trace_path, scene_path, decode_path, out_path=None):
         s["get_pose"] = (lambda sl: (lambda: (prod_row(sl)["pos"], prod_row(sl)["quat"])))(s["slug"])
         s["get_lin_vel"] = (lambda sl: (lambda: prod_row(sl)["vel"]))(s["slug"])
 
-    def load_nm(_slug):
+    # 왼 그리퍼는 하나뿐이라 부하도 하나다. 그것을 슬러그로 안 가르면 손에 힘이 들어간
+    # 순간 세 상품이 **동시에** 집기 통과한다. 지금 다루는 슬롯의 상품에만 준다.
+    def load_nm(slug):
         row = cur()
-        if row.get("grip_q") is None:
+        if slug != target_of(row) or row.get("grip_q") is None:
             return None
         return float(np.clip(STIFFNESS * (row["grip_cmd"] - row["grip_q"]),
                              -EFFORT_LIMIT, EFFORT_LIMIT))
 
-    def grip_q(_slug):
-        return cur().get("grip_q")
+    def grip_q(slug):
+        return cur().get("grip_q") if slug == target_of(cur()) else None
 
     def grasped(slug):
         # 「쥔 상태」 = 닫힘 명령 + 모터가 실제로 밀고 있음. 대상 상품만.
-        if slug != target:
-            return False
         row = cur()
+        if slug != target_of(row):
+            return False
         if row.get("grip_q") is None:
             return None
         ld = load_nm(slug)
@@ -115,11 +143,15 @@ def main(trace_path, scene_path, decode_path, out_path=None):
                     and abs(ld) >= cfg.grip_load_min_nm)
 
     def decode(slug):
-        # 디코드 성공 여부는 재생기 결과를 재사용하고,
+        # 스캐너캠에서 읽힌 문자열을 그대로 돌려준다 -- 맞는 코드인지는 채점기가 견준다.
         # **거리·파지 조건은 채점기가 다시 판정한다**(평가안: 우리 조건으로 거른다).
-        if slug != target or not decoded_ok:
+        if slug != target_of(cur()) or slug not in decoded_slugs:
             return None
-        return specs[0]["expected_code"]
+        if slug in decoded_text:
+            return decoded_text[slug]
+        # 그림 판독을 끄고 돌린 판(기하 판정만)이다. 읽힌 문자열이 없으니 대조할 것이
+        # 없어 기대 코드를 그대로 준다. 요약의 `decoded_by` 에 그렇게 적힌다.
+        return next((sp["expected_code"] for sp in specs if sp["slug"] == slug), None)
 
 
     def _obb_corners(pos, quat, he):
@@ -145,9 +177,9 @@ def main(trace_path, scene_path, decode_path, out_path=None):
         픽셀 세기가 아니라 **경계상자 투영 넓이**라 실제 점유율의 상한이다.
         가려짐·곡면은 반영하지 않는다 -- 리포트에 그대로 적는다.
         """
-        if slug != target:
-            return None
         row = cur()
+        if slug != target_of(row):
+            return None
         cam = row.get("cam")
         sz = row.get("tgt_size")
         bd = row.get("bd")
@@ -196,10 +228,10 @@ def main(trace_path, scene_path, decode_path, out_path=None):
         specs, cfg, table_z=table_z, band_rect=band,
         beam_origin_fn=lambda: np.asarray(cur()["beam"], dtype=float),
         grasp_fn=grasped,
-        grip_closed_fn=lambda sl: (cur()["grip_cmd"] > 0.1) if sl == target else False,
+        grip_closed_fn=lambda sl: (cur()["grip_cmd"] > 0.1) if sl == target_of(cur()) else False,
         gripper_load_fn=load_nm,
         gripper_pos_fn=grip_q,
-        q_free_close=None,          # 미측정 -- 리포트에 경고가 남는다
+        q_free_close=dec.get("q_free_close"),   # 재생기가 씬에서 잰 값
         coverage_fn=coverage,       # OBB 투영 넓이 비율
         decode_fn=decode,
     )
@@ -212,7 +244,9 @@ def main(trace_path, scene_path, decode_path, out_path=None):
 
     rep = sc.report()
     rep["source"] = {"trace": trace_path, "frames": len(tr),
-                     "target": target, "replay_grade": dec.get("grade"),
+                     "targets": slugs, "decoded": sorted(decoded_slugs),
+                     "decoded_by": decoded_by, "decoded_text": decoded_text,
+                     "replay_grade": dec.get("grade"),
                      "replay_decode_ok": decoded_ok}
     rep["warnings"].append(
         "화면 점유율은 OBB 투영 넓이 비율이다 -- 가려짐·곡면을 반영하지 않는 **상한**이고, "
@@ -224,21 +258,23 @@ def main(trace_path, scene_path, decode_path, out_path=None):
 
 def _fmt(rep):
     L = []
-    L.append(f"대상 {rep['source']['target']}  프레임 {rep['source']['frames']}  "
+    L.append(f"대상 {', '.join(rep['source']['targets'])}  프레임 {rep['source']['frames']}  "
              f"재생기 등급 {rep['source']['replay_grade']}")
     L.append(f"상판 z={rep['measured']['table_z']:.4f}  "
              f"띠={[round(v,4) for v in rep['measured']['band_rect']]}")
+    total = 0.0
     for p in rep["products"]:
-        if p["slug"] != rep["source"]["target"]:
-            continue
+        L.append(f"[{p['slug']}]")
         for k, v in p["items"].items():
             mark = {True: "PASS", False: "FAIL"}.get(v["pass"], v["pass"])
             t = f"  t={v['t']:.2f}" if v["t"] is not None else ""
             L.append(f"  {k:<16} {mark:<12} {v['pts']:>4.1f}점{t}")
             L.append(f"      └ {p['why'].get(k, '')}")
         L.append(f"  {'합계':<16} {p['points']:.1f} / {p['max']:.1f}")
+        total += p["points"]
         if p["why"].get("_fallen"):
             L.append(f"  낙하: {p['why']['_fallen']}")
+    L.append(f"총점 {total:.1f} / {sum(p['max'] for p in rep['products']):.1f}")
     if rep["stopped"]:
         L.append(f"  중지: {rep['stopped']}")
     if rep.get("attempt_consumed"):
