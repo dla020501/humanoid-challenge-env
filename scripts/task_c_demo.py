@@ -234,12 +234,41 @@ def _cam(name):
     c = L.CAMERAS[name]
     return CameraCfg(
         prim_path="{ENV_REGEX_NS}/Robot/" + c["rel"],
-        update_period=1.0e9, height=c["h"], width=c["w"], data_types=["rgb"],
+        # 0.0 = 매 `scene.update` 마다 갱신. 수집 파이프라인의 `rec_*` 카메라와 같다.
+        # 큰 값을 주면 IsaacLab 이 센서를 낡음으로 표시하지 않아 `force_recompute`
+        # 를 줘도 그림이 첫 프레임에서 얼어붙는다(실측: 1500 장이 전부 동일).
+        update_period=0.0, height=c["h"], width=c["w"], data_types=["rgb"],
         update_latest_camera_pose=True,
         spawn=sim_utils.PinholeCameraCfg(focal_length=c["focal"], focus_distance=c["focus"],
                                          horizontal_aperture=c["aperture"],
                                          clipping_range=c["clip"]),
         offset=CameraCfg.OffsetCfg(pos=c["offset_pos"], rot=c["offset_rot"], convention="isaac"))
+
+
+# 리프트 강성 보정.
+#
+# 수집 파이프라인은 매 물리 걸음마다 로봇의 **루트를 다시 써 넣는다**(V4-30(1),
+# qr_sweep_replay.py 의 `hold_step`). 이 로봇의 아티큘레이션 루트는 바퀴가 달린 섀시가
+# 아니라 **리프트 위의 몸통(`arm_base_link`)** 이라, 그 재기입이 몸통을 공중에 못박아
+# 리프트가 눌릴 수 없게 만든다. 그래서 GT 기록의 `lift_joint` 는 전 구간 0.000000 이다.
+#
+# 재생기는 그 재기입을 쓸 수 없다. 열린 고리라 매 걸음 순간이동이 팔 추종 오차로 쌓여
+# 파지가 무너진다(실측: 슬롯0 들림 206.7 -> 28.4 mm, 왼팔 잔차 3.8 -> 27.1 mrad).
+#
+# 그대로 두면 리프트가 눌린다. 이건 설정대로의 정상 결과다 -- 리프트 위 질량이 약 26 kg
+# 이라 258 N 이 걸리고, 강성 10000 N/m 에서 258/10000 = 25.8 mm 가 정확히 실측된다.
+# 몸통이 그만큼 내려가면 머리캠도 같이 내려가, GT 대비 카메라가 30 mm 낮아진다
+# (띠 네 모서리로 역산한 값: 높이 +30.1 mm, 전체 35.1 mm).
+#
+# 그래서 리프트만 뻣뻣하게 만들어 v5 와 같은 물리적 상태를 만든다. 개입 지점이 관절 하나
+# 뿐이라 베이스도 팔도 건드리지 않는다. 10 배(100000)면 처짐이 2.6 mm 로 줄고 카메라
+# 높이 오차가 30.1 -> 5.1 mm 가 된다. 더 올리면 오히려 목표를 지나친다(바퀴가 정착하며
+# 4.6 mm 올라오는 몫이 남기 때문). 0 을 주면 보정이 꺼진다.
+LIFT_STIFFNESS = float(os.environ.get("TASKC_LIFT_K", "100000.0"))
+LIFT_DAMPING = float(os.environ.get("TASKC_LIFT_D", "1000.0"))
+if LIFT_STIFFNESS > 0:
+    FFW_SG2_MOBILE_CFG.actuators["lift"].stiffness = LIFT_STIFFNESS
+    FFW_SG2_MOBILE_CFG.actuators["lift"].damping = LIFT_DAMPING
 
 
 @configclass
@@ -305,6 +334,7 @@ def main():
 
     sim.reset()
     counter.draw_band(log=lambda m: print(f"[i] {m}", flush=True))
+    counter.bind_band_idle(stage, log=lambda m: print(f"[i] {m}", flush=True))
 
     robot = scene["robot"]
     names = list(robot.joint_names)
