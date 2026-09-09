@@ -114,6 +114,41 @@ ${ISAACLAB_PATH}/_isaac_sim/python.sh -u \
   2: samyang_buldak_cup         최대 들림  235.7 mm  스캐너 최근접  156.5 mm (f7997)  최종 자리 (+0.227, +0.079, 0.958) 띠 안  들어올림 O
 ```
 
+#### 허깅페이스 학습 데이터 직접 재생
+
+동봉된 11편 말고, 주최 측이 공개한 학습 데이터 960편도 그대로 틀 수 있습니다.
+
+> https://huggingface.co/datasets/SSU-RealityLab/2026CS-Store-Challenge
+
+```bash
+cd /workspace/cyclo_lab
+${ISAACLAB_PATH}/_isaac_sim/python.sh -u     /workspace/challenge_scripts/task_c_replay.py     --lerobot /path/to/2026CS-Store-Challenge --episode-index 792
+```
+
+편 번호는 데이터셋의 `meta/taskC_episodes.jsonl` 에 있는 `episode_index` 입니다. 그 파일이
+편마다 상품·바코드·등급과 함께 **장면 시드(`seed`)** 를 알려 줍니다.
+
+**장면은 데이터셋이 아니라 이 저장소가 싣습니다.** 과제 A 가 매장 12판을
+`scripts/taskA/stores/` 에 두는 것과 같은 방식으로, 과제 C 는 960편의 계산대 배치를
+`scripts/taskC/scenes/<시드>.json` 에 둡니다(총 1.65 MB). 재생기가 위 `seed` 로 짝을 찾아
+장면을 세우고, parquet 에서 관절 기록을 꺼내 `demos_gt/` · `demos/` 와 같은 모양으로
+`scripts/taskC/.lerobot_cache/` 에 펼친 뒤 평소 경로로 재생합니다. 한 번 펼친 편은 다시
+펼치지 않습니다.
+
+parquet 을 읽어야 하므로 `pyarrow` 가 필요합니다. 데이터셋을 내려받았다면 이미 깔려
+있지만(`lerobot` · `datasets` 가 의존), 시뮬레이터 쪽 파이썬에는 없을 수 있습니다:
+
+```bash
+${ISAACLAB_PATH}/_isaac_sim/python.sh -m pip install pyarrow
+```
+
+`run/run_task_c_replay.sh` 의 `LEROBOT` · `EPISODE_INDEX` 를 채우면 GUI 로도 볼 수 있습니다.
+이때 데이터셋 경로는 **컨테이너 안에서 보이는** 경로여야 합니다.
+
+> 동봉된 GT 3편과 싱글 8편은 LeRobot 형식이 아닙니다. 지금처럼 폴더 형식(`actions.npy` ·
+> `joints.npy` · 장면 JSON)으로 두고 `--set` 으로 틉니다. `--lerobot` 은 `.lerobot_cache/`
+> 에만 펼치므로 그 둘을 건드리지 않습니다.
+
 #### 동봉된 데모 데이터 11종 상세
 
 | `--set gt --seed` | 상품 처리 순서 (슬롯 0 → 1 → 2) | 프레임 수 | 재생 시간 |

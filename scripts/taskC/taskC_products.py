@@ -66,6 +66,15 @@ def product_usd(slug: str) -> _pathlib.Path:
     return product_dir(slug) / f"{slug}_phys.usd"
 
 
+def product_mesh_usd(slug: str) -> _pathlib.Path:
+    """시각 메시 원본. 빔 자국(`taskC_beam`)이 여기서 삼각형을 읽는다.
+
+    `product_usd` 의 `_phys.usd` 는 물리용 래퍼라 메시가 참조로 들어 있다. 수집
+    파이프라인도 자국을 만들 때 이 `.usdc` 를 직접 연다.
+    """
+    return product_dir(slug) / f"{slug}.usdc"
+
+
 # 평가 표본 시드. `--seed 0/1/2` 는 cstore-challenge `ship/ground_truth_sample/` 의 세 판(상품 3개
 # 연속 정답 궤적)을 가리킨다. 그 장면은 원 시드(SAMPLE_SEEDS 값)로 만들었지만 상품 조합은 수집
 # 파이프라인이 따로 정한 것이라 시드만으로 되살릴 수 없다. 그래서 정착된 장면 파일을 `samples/` 에
