@@ -102,6 +102,21 @@ FIXTURE_GOAL_XY = (-0.1003, 2.5588)
 # 로봇 기준 좌표계에서 +x 가 앞이다.
 ROBOT_FOOTPRINT = {"back": -0.403, "front": 0.225, "half_width": 0.301}
 
+# 매장 안쪽 면 (m).  `taskA_layout.py` 의 STORE_X / STORE_Y 와 같은 값이고, 여기 다시 적는
+# 이유는 채점기가 배포 이미지 없이도 돌아야 하기 때문이다 (그쪽은 매장 USD 경로를 잡느라
+# 이미지를 본다).  `log_check` 는 이 값을 그대로 가져다 쓴다 -- 두 곳에 적지 않는다.
+#
+# **이것은 위생 검사의 값이 아니라 채점 규칙의 값이다** (사용자 결정 2026-09-10).
+# 앞 판은 매장 이탈을 위생 검사로만 봤고, 그래서 두 가지가 어긋나 있었다:
+#
+#     매장 밖 0 ~ 2 m     아무 일도 없었다.  점수 그대로
+#     매장 밖 2 m 초과     「채점 거부」 -- 그리고 그 출력이 "로그가 깨진 것과 로봇이 못한
+#                        것은 다른 일" 이라고 말한다.  **나간 것은 로봇이 못한 것이다.**
+#
+# 이제 발자국이 이 선을 넘으면 그 프레임에서 판이 끝난다 (`ended = "out_of_store"`).
+STORE_X = (-11.1, 1.3)
+STORE_Y = (-5.12, 7.25)
+
 # 선언 (시트 Sub 3# ④).  "멈췄다" 의 뜻.
 STOP_MM_S = 10.0
 
@@ -256,6 +271,40 @@ def zone_gap_mm(base_xy, base_yaw, goal_xy, zone_m=None, footprint=None):
     return max(0.0, d - zone_m) * 1000.0
 
 
+def out_of_store_mm(base_xy, base_yaw, footprint=None,
+                    store_x=None, store_y=None):
+    """로봇 **발자국**이 매장 안쪽 면을 얼마나 넘어갔나 (mm).  **0 이면 아직 안 넘었다.**
+
+    사용자 결정 2026-09-10: 기준은 중심이 아니라 **발자국**이다.  다른 기물의 충돌 판정과
+    같은 잣대이고(겹치면 끝, 문턱 없음), 벽만 다른 잣대를 쓰면 왜 다른지를 설명할 수 없다.
+
+    **그 대가를 적어 둔다: 벽을 스치기만 해도 판이 끝난다.**  앞 판은 `Walls` 를 충돌
+    목록에서 통째로 빼서 벽을 긁어도 공짜였다.  뺀 이유는 벽이 나쁘지 않아서가 아니라
+    **벽의 축정렬 상자가 매장 전체**(12.64 x 12.61 m)라 그대로 넣으면 로봇이 매장 안에
+    있는 한 매 프레임 겹쳤기 때문이다.  안쪽 면과의 거리로 재면 그 문제가 없다.
+
+    정답 주행 세 판의 여유 (2026-09-10 실측): 발자국 기준 0.975 / 0.360 / 0.340 m.
+    가장 붙은 판이 34 cm 남는다.
+
+    `zone_gap_mm` 과 같은 이유로 **못 재면 넘은 것으로 본다** -- 못 잰 것이 합격이 되는
+    방향으로 넘어지면 아무도 모른다.
+    """
+    import math
+    fp = ROBOT_FOOTPRINT if footprint is None else footprint
+    sx = STORE_X if store_x is None else store_x
+    sy = STORE_Y if store_y is None else store_y
+    if not all(math.isfinite(float(v)) for v in (base_xy[0], base_xy[1], base_yaw)):
+        return float("inf")
+    c, s_ = math.cos(float(base_yaw)), math.sin(float(base_yaw))
+    worst = 0.0
+    for lx, ly in ((fp["front"], fp["half_width"]), (fp["front"], -fp["half_width"]),
+                   (fp["back"], fp["half_width"]), (fp["back"], -fp["half_width"])):
+        wx = float(base_xy[0]) + lx * c - ly * s_
+        wy = float(base_xy[1]) + lx * s_ + ly * c
+        worst = max(worst, sx[0] - wx, wx - sx[1], sy[0] - wy, wy - sy[1])
+    return max(0.0, worst) * 1000.0
+
+
 def thresholds():
     """이 판이 쓰는 문턱 전부.  출력에 실어 보내 이의 제기에 답할 수 있게 한다."""
     return dict(LIFT_OK_MM=LIFT_OK_MM, ARRIVE_ZONE_M=ARRIVE_ZONE_M,
@@ -377,8 +426,9 @@ def score(m, th=None):
     #
     # 시트: "여기는 얹히기(책상 상판과 접촉)만 하면 됨."  **걸침을 여기서 보지 않는다** --
     # 다음 항목(6초 창)이 그것을 본다.  대신 **책상이 20 mm 이상 움직였으면 가점이 없다.**
-    if ended in ("dropped", "hit"):
+    if ended in ("dropped", "hit", "out_of_store"):
         why = ("바구니를 떨어뜨려 판이 끝났다" if ended == "dropped"
+               else "로봇이 매장 밖으로 나가 판이 끝났다" if ended == "out_of_store"
                else "매장 가구에 부딪혀 판이 끝났다")
         items["placed"] = _item(False, why)
         items["stayed"] = _item(False, why)

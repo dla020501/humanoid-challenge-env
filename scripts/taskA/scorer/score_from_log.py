@@ -319,6 +319,23 @@ def measure_one(head, a, scene, th):
     ever_held = np.maximum.accumulate(on_robot.astype(np.int8)) > 0
     dropped = (ever_held & ~on_robot & (nonrobot > th["CONTACT_N"]) & (~on_top))
     hit_now = a["hit_now"] > 0.5
+
+    # ── 매장 이탈 -- 발자국이 안쪽 면을 넘으면 그 프레임에서 판을 끝낸다 ──────────────
+    #
+    # 사용자 결정 2026-09-10.  앞 판은 이것을 **위생 검사로만** 봤고, 그래서 두 가지가
+    # 어긋나 있었다: 매장 밖 2 m 까지는 아무 벌칙이 없었고, 2 m 를 넘으면 「채점 거부」가
+    # 되면서 "로그가 깨진 것과 로봇이 못한 것은 다른 일" 이라고 찍혔다.
+    # **로봇이 나간 것은 로봇이 못한 것이다.**
+    #
+    # 기준이 중심이 아니라 발자국인 이유: 다른 기물의 충돌과 같은 잣대여야 한다 (겹치면
+    # 끝, 문턱 없음).  대가는 **벽을 스치기만 해도 판이 끝난다**는 것이고, 사용자가 그
+    # 대가를 보고 고른 것이다.  정답 주행 세 판의 여유는 0.975 / 0.360 / 0.340 m 다.
+    # 자르기 **전에** 재야 한다 -- 자르는 자리를 정하는 것이 이 값이다.
+    yaw_all = _yaw(a["base_quat"])
+    out_mm = np.array([R.out_of_store_mm(a["base_pos"][i, :2], yaw_all[i])
+                       for i in range(len(a["t"]))], dtype=np.float64)
+    outside = out_mm > 0.0
+
     stop_i, stop_why = None, None
     if dropped.any():
         stop_i, stop_why = int(np.argmax(dropped)), "dropped"
@@ -326,6 +343,10 @@ def measure_one(head, a, scene, th):
         j = int(np.argmax(hit_now))
         if stop_i is None or j < stop_i:
             stop_i, stop_why = j, "hit"
+    if outside.any():
+        j = int(np.argmax(outside))
+        if stop_i is None or j < stop_i:
+            stop_i, stop_why = j, "out_of_store"
     # **제한 시간을 넘긴 프레임은 없는 것으로 본다.**
     #
     # 하네스가 한 시도를 제한 시간에 자르므로 채점기도 같은 자리에서 잘라야 한다.
@@ -344,6 +365,8 @@ def measure_one(head, a, scene, th):
             + ("바구니가 그리퍼를 벗어나 상판 밖에서 멈췄다 — 판 종료" if stop_why == "dropped"
                else f"제한 시간 {th['TIME_LIMIT_S']:.0f}초를 넘겼다 — 판 종료"
                if stop_why == "time_limit"
+               else (f"로봇 발자국이 매장 안쪽 면을 {out_mm[stop_i]:.0f} mm 넘어갔다 "
+                     f"— 판 종료") if stop_why == "out_of_store"
                else f"{out['furniture'].get('what') or '매장 가구'} 에 부딪혔다 — 판 종료")
             + f" (기록은 {a['t'][-1]:.1f}초까지 있으나 여기서 자른다)")
         # **여기서 자른다.**  뒤 항목들은 잘린 구간만 본다.
@@ -356,6 +379,7 @@ def measure_one(head, a, scene, th):
             if _k in a:
                 a = {**a, _k: a[_k][sl]}
         grip_max, other = grip_max[sl], other[sl]
+        out_mm, outside = out_mm[sl], outside[sl]
         robot_touch, nonrobot = robot_touch[sl], nonrobot[sl]
         on_robot, on_grip, free = on_robot[sl], on_grip[sl], free[sl]
         held, gripped, on_top = held[sl], gripped[sl], on_top[sl]
@@ -365,6 +389,12 @@ def measure_one(head, a, scene, th):
         c_speed_reported = c_speed_reported[sl]
         corners = corners[sl]
         out["frames_scored"] = int(stop_i + 1)
+
+    # 벽까지 얼마나 넘었나.  채점에는 「넘었나 아닌가」만 쓰지만, 숫자는 남긴다 -- 이의가
+    # 오면 이것으로 답한다 (걸침·속도를 재기만 하는 것과 같은 이유).
+    out["store"] = {"left": bool(outside.any()),
+                    "worst_out_mm": float(out_mm.max()),
+                    "frames_outside": int(outside.sum())}
 
     # ── 집기 조각만 답할 수 있는 것 ─────────────────────────────────────────────────────
     # **예전에는 토막 이름이 이 문을 열었다** (`if seg == "..."`).  그러면 무엇을 잴지를

@@ -396,6 +396,47 @@ else:
     near("붙박이 목표 y", R.FIXTURE_GOAL_XY[1], _L.goal_pose()[1], 1e-4)
 
 
+
+# ── 매장 이탈 (사용자 결정 2026-09-10) ──────────────────────────────────────────────
+#
+# 앞 판은 이탈을 **위생 검사로만** 봤다.  매장 밖 2 m 까지는 아무 벌칙이 없었고, 2 m 를
+# 넘으면 「채점 거부」가 되면서 "로그가 깨진 것과 로봇이 못한 것은 다른 일" 이라고 찍혔다.
+# 로봇이 나간 것은 **로봇이 못한 것**이므로 이제 판 종료 조건이다.
+#
+# 기준은 중심이 아니라 **발자국**이다 -- 다른 기물의 충돌과 같은 잣대(겹치면 끝, 문턱 없음).
+# 대가는 벽을 스치기만 해도 판이 끝난다는 것이고, 정답 주행의 여유는 0.34 m 다.
+_XL, _XR = R.STORE_X
+_YB, _YT = R.STORE_Y
+check("매장 한가운데는 0", R.out_of_store_mm([-5.0, 1.0], 0.0), 0.0)
+
+# 네 벽 각각.  발자국이 앞 0.225 / 뒤 0.403 / 좌우 0.301 이므로 방위에 따라 닿는 거리가 다르다.
+check("동쪽 벽 앞 (앞 모서리가 딱)", R.out_of_store_mm([_XR - 0.225, 1.0], 0.0), 0.0)
+near("동쪽 벽을 100 mm 넘음", R.out_of_store_mm([_XR - 0.225 + 0.100, 1.0], 0.0), 100.0, 0.01)
+near("서쪽 벽을 100 mm 넘음", R.out_of_store_mm([_XL + 0.403 - 0.100, 1.0], 0.0), 100.0, 0.01)
+near("북쪽 벽을 100 mm 넘음", R.out_of_store_mm([-5.0, _YT - 0.301 + 0.100], 0.0), 100.0, 0.01)
+near("남쪽 벽을 100 mm 넘음", R.out_of_store_mm([-5.0, _YB + 0.301 - 0.100], 0.0), 100.0, 0.01)
+
+# **방위가 결과를 바꾼다.**  옆으로 선 로봇이 앞을 향한 로봇보다 뒤 모서리를 더 내민다.
+_x = _XR - 0.30
+check("같은 자리라도 방위에 따라 다르다",
+      R.out_of_store_mm([_x, 1.0], 0.0) != R.out_of_store_mm([_x, 1.0], math.pi / 2), True)
+
+# 못 재면 **넘은 것**으로 본다 (`zone_gap_mm` 과 같은 방향)
+for _bad, _args in (("x", [[float("nan"), 1.0], 0.0]), ("y", [[-5.0, float("nan")], 0.0]),
+                    ("방위", [[-5.0, 1.0], float("nan")])):
+    check(f"이탈: {_bad} 가 NaN 이면 «넘었다»", math.isinf(R.out_of_store_mm(*_args)), True)
+
+# 판 종료 처리는 충돌과 같다 (사용자 결정): 그때까지 얻은 것은 남기고 놓기 7점은 못 얻는다
+_o = R.score(m(ended="out_of_store"))
+check("이탈: 얹음을 못 얻는다", got(_o, "placed"), False)
+check("이탈: 6초를 못 얻는다", got(_o, "stayed"), False)
+check("이탈: 그때까지 얻은 집기는 남는다", got(_o, "picked"), True)
+check("이탈: 사유가 출력에 남는다", _o["ended"], "out_of_store")
+check("이탈: 사유 문장이 충돌과 구분된다",
+      "매장 밖으로 나가" in _o["items"]["placed"]["why"], True)
+check("이탈도 분모는 21 고정", _o["possible"], 21.0)
+
+
 print(f"전부 통과 ({len(R.ITEMS)}항목 {sum(R.POINTS.values()):.0f}점 × 시도 {R.ATTEMPTS} = "
       f"{sum(R.POINTS.values()) * R.ATTEMPTS:.0f}점)")
 print()

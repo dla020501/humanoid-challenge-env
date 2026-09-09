@@ -337,6 +337,70 @@ _mis["desk_pos"][:, 1] += 0.50
 want_refused("씬의 책상과 로그의 책상이 0.50 m 어긋난다", a=_mis)
 
 
+# ── 매장 이탈이 실제 로그에서 잡히나 (2026-09-10) ──────────────────────────────────────
+#
+# 벽은 단단하다 (`taskA_colliders._SOLID_TYPES` 에 "Cube" 가 있고 벽은 Cube 다) -- 그래서
+# 그냥 밀고 나갈 수는 없다.  그래도 규칙을 두는 이유는 **넘어지는 방향** 때문이다: 앞 판은
+# 나가면 벌칙이 없거나(매장 밖 2 m 까지) 「채점 거부」였고, 둘 다 "로봇이 못했다" 가 아니다.
+#
+# **이탈은 주행 중에 일으켜야 한다.**  판 전체를 평행이동하면 바구니가 책상에서 벗어나
+# `dropped` 가 먼저 걸려서, 무엇을 시험하는지 흐려진다 (첫 판이 그래서 틀렸다).
+# 쥐고 있는 구간(프레임 55~1827)의 한가운데에서 남쪽으로 밀어낸다 -- 그 동안은 로봇이
+# 바구니를 쥐고 있으므로 낙하가 성립하지 않는다.
+if not (A["base_pos"][:, 1].min() > R.STORE_Y[0] + 0.503):
+    FAIL.append("합성 정답 로그가 이미 남쪽 벽에 붙어 있다 -- 시험의 전제가 깨졌다")
+
+_out = {k: np.array(v, copy=True) for k, v in A.items()}
+_n = len(_out["t"])
+_a, _b = int(_n * 0.45), int(_n * 0.55)
+_ramp = np.zeros(_n)
+_ramp[_a:_b] = np.linspace(0.0, -3.0, _b - _a)      # 남쪽으로 3 m, 서서히 (순간이동 검사 회피)
+_ramp[_b:] = -3.0
+for _k in ("base_pos", "crate_pos"):
+    _out[_k][:, 1] += _ramp
+_out["grip_pos"][:, :, 1] += _ramp[:, None]
+
+_p = SFL.measure_one(copy.deepcopy(HEAD), _out, SCENE, TH)
+if _p.get("stopped_why") != "out_of_store":
+    FAIL.append("매장 밖으로 나갔는데 판이 %r 로 끝났다 -- out_of_store 여야 한다"
+                % _p.get("stopped_why"))
+if not (_p.get("store") or {}).get("left"):
+    FAIL.append("매장 밖으로 나갔는데 store.left 가 참이 아니다")
+if LC.problems(_out, copy.deepcopy(HEAD), SCENE):
+    FAIL.append("이탈 로그가 위생 검사에 걸렸다 -- 채점 거부가 아니라 판 종료여야 한다")
+_s = R.score(SFL.merge([_p]))
+if _s["items"]["placed"]["points"] or _s["items"]["stayed"]["points"]:
+    FAIL.append("매장 밖으로 나갔는데 놓기 점수가 남아 있다")
+if _s["possible"] != 21.0:
+    FAIL.append("이탈 판의 분모가 %s 다 -- 21 이어야 한다" % _s["possible"])
+if _s["ended"] != "out_of_store":
+    FAIL.append("이탈 판의 ended 가 %r 다" % _s["ended"])
+
+# **안 나간 판은 건드리지 않는다.**  이 규칙이 멀쩡한 주행을 자르면 그게 더 나쁘다.
+_pi = SFL.measure_one(copy.deepcopy(HEAD),
+                      {k: np.array(v, copy=True) for k, v in A.items()}, SCENE, TH)
+if (_pi.get("store") or {}).get("left"):
+    FAIL.append("멀쩡한 주행이 이탈로 찍혔다")
+if _pi.get("stopped_why") == "out_of_store":
+    FAIL.append("멀쩡한 주행이 이탈로 잘렸다")
+
+# 이탈이 충돌보다 **먼저** 일어나면 이탈이 이긴다 (가장 이른 사유가 이긴다)
+_both = {k: np.array(v, copy=True) for k, v in _out.items()}
+_both["hit_now"] = np.array(_both["hit_now"], copy=True)
+_both["hit_now"][-1] = 1.0                       # 맨 마지막에 충돌을 심는다
+_pb = SFL.measure_one(copy.deepcopy(HEAD), _both, SCENE, TH)
+if _pb.get("stopped_why") != "out_of_store":
+    FAIL.append("이탈이 충돌보다 먼저인데 %r 로 끝났다" % _pb.get("stopped_why"))
+
+# 거꾸로: 충돌이 먼저면 충돌이 이긴다
+_hit1 = {k: np.array(v, copy=True) for k, v in _out.items()}
+_hit1["hit_now"] = np.array(_hit1["hit_now"], copy=True)
+_hit1["hit_now"][int(_n * 0.20)] = 1.0
+_ph = SFL.measure_one(copy.deepcopy(HEAD), _hit1, SCENE, TH)
+if _ph.get("stopped_why") != "hit":
+    FAIL.append("충돌이 이탈보다 먼저인데 %r 로 끝났다" % _ph.get("stopped_why"))
+
+
 if FAIL:
     print("실패 %d건" % len(FAIL))
     for f in FAIL:
