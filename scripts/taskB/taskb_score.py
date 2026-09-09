@@ -7,6 +7,11 @@
 #   [한 번이라도]  판이 도는 내내 보고, 한 번이라도 참이면 점수. 뒤에 무슨 일이 생겨도 뺏지 않는다.
 #   [그 시점에]    채점 종료의 한 순간에 한 번만 보고 판정한다.
 #
+# [그 시점에] 인 것 중 **B12~B18 과 B20** 은 상품을 선반에 내려놓았을 때만 점수가 된다 (사용자
+# 2026-09-09). 든 채 끝났거나 바닥에 떨어뜨렸으면 0이다 -- 진열을 마치지 못한 판이라 볼 것이 없다.
+# **B19(파란 상자)만 예외로 그대로 둔다** -- 상자는 진열을 마쳤든 아니든 탁자 위에 있어야 하고,
+# 사용자가 09-09 에 바꾸라고 한 것은 B12 와 B20 둘이다.
+#
 # 감점 항목은 없다. 문턱값과 무엇을 재는지는 시트의 H열("simulation 평가 로직 구현 관련")에서
 # 왔고, 아래 THRESHOLD 에 한 곳으로 모았다. 시트가 「아직 안 잰 값」이라 표시한 다섯
 # (30 mm · 300 mm · 15° · 45° · 45°) 은 2026-09-03 에 잰 결과를 그 옆에 적었다.
@@ -107,8 +112,12 @@ THRESHOLD = {
                              #     ※ 실측 passed 3,116판의 분포는 세 덩어리다: 0~10° 531 · 70~100° 2,051(누움) · 170~180° 524(거꾸로),
                              #     40~70° 사이는 3판. 09-03 의 90° 선은 누운 덩어리 한가운데라 80~90° 의 1,123판이 「서 있음」이 됐다
                              #     시트 "눕혀서 진열하는 상품은 누워 있는 것이 통과" (oreo_strawberry, taskb_orientation.json
-                             #     upright: false) 는 따로 안 둔다 -- 뒷줄 z 축, 없으면 진열 자세(stock_orientation)와 견주므로
-                             #     누운 진열 자세가 곧 기준이다. 실측: oreo 의 진열 자세 대비 tilt 0.0°
+                             #     upright: false) 는 따로 안 둔다 -- 진열 자세에서 하늘을 보던 축을 견주므로 누운
+                             #     진열 자세가 곧 기준이다 (`up_angle_deg`).
+                             #     ~~실측: oreo 의 진열 자세 대비 tilt 0.0°~~ 이 근거는 틀렸다 -- `tilt_deg` 로 잰 값인데
+                             #     B15 가 쓰는 것은 `up_angle_deg` 였고, 그때의 `up_angle_deg` 는 **몸통 z 축**을 봤다.
+                             #     oreo 는 진열 자세에서 몸통 z 가 옆을 봐서(90°) 제 자세로 누워 있어도 58~179° 가 나왔다.
+                             #     2026-09-09 에 `up_angle_deg` 를 「진열에서 하늘 보던 축」으로 고쳐서 막았다 (MISTAKES §88)
     "facing_deg": 90.0,      # B16 뒷줄 같은 상품 기준 ±90° (사용자 2026-09-08, ~~180°~~ ~~45°~~).
                              #     B15(위아래)를 통과한 판만 본다. 제자리에서 돌아간 각도이고 0~180° 로 나온다.
                              #     ±180° 이던 동안에는 서 있기만 하면 방향 4점이 무조건 붙어 거르는 것이 없었다.
@@ -175,9 +184,22 @@ def tilt_deg(q, display_quat):
     return math.degrees(math.acos(max(-1.0, min(1.0, qrot(q, up)[2]))))
 
 
-def up_angle_deg(q, q_ref):
-    """두 자세의 z 축이 벌어진 각도 -- 놓은 상품과 뒷줄 같은 상품이 같은 쪽을 보는가 (B15)."""
-    a, b = qrot(q, (0.0, 0.0, 1.0)), qrot(q_ref, (0.0, 0.0, 1.0))
+def up_angle_deg(q, display_q, q_ref, display_ref):
+    """놓은 상품과 뒷줄 상품이 **같은 쪽을 보고 있는가** -- 각자 진열 자세에서 하늘을 보던 축이
+    둘 사이에 몇 도 벌어졌나 (B15).
+
+    몸통 z 축이 아니라 이 축을 쓴다. 세워 두는 상품은 진열 자세에서 몸통 z 가 곧 위라서 둘이
+    같지만, 눕혀 두는 상품(`taskb_orientation.json` 의 upright: false -- 실측 2026-09-09 기준
+    oreo_strawberry 하나)은 몸통 z 가 옆을 봐서, 제자리에 제 자세로 누워 있어도 좌우로 돌아간
+    만큼 각도가 벌어진다.
+
+    실측 2026-09-09, 로컬 전수 7,506판: 제 진열 자세로 놓인 oreo 9판 중 6판이 몸통 z 로는
+    58~179° 가 나와 0점이었고, 이 축으로 재면 0.6~1.8° 다. 세워 두는 상품 4,306판은 판정이
+    하나도 안 바뀐다 (두 축이 같아서다 -- 진열 자세에서 몸통 z 가 하늘과 이루는 각 0.0°).
+    """
+    up_a = qrot(qinv(display_q), (0.0, 0.0, 1.0))
+    up_b = qrot(qinv(display_ref), (0.0, 0.0, 1.0))
+    a, b = qrot(q, up_a), qrot(q_ref, up_b)
     return math.degrees(math.acos(max(-1.0, min(1.0, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))))
 
 
@@ -391,7 +413,10 @@ class ProductScorer:
         dropped = reason == "dropped"
         m["end_reason"] = "placed" if placed else ("dropped" if dropped else "in_hand")
         m["end_by"] = reason
-        pts["B12"] = 0 if dropped else POINTS["B12"]
+        # **선반에 내려놓았을 때만 점수다** (사용자 2026-09-09). 든 채 끝났으면(시간 초과 · refused ·
+        # 상자 속에 둔 채) 「끝까지 떨어뜨리지 않았다」를 물을 자리가 아니다 -- 진열을 마치지 못한 것이다.
+        # ~~떨어뜨려서 끝난 것이 아니면 통과~~ 는 이날 바뀌었다: 그때는 실패한 pick 2,593판이 4점을 받았다.
+        pts["B12"] = POINTS["B12"] if placed else 0
 
         # ---- 아래 여섯(B13~B18)은 시트가 「놓은 뒤 3초」에 보는 것이다. 놓지 않았으면 볼 것이 없다: 든 채
         # 끝났거나 떨어뜨렸으면 전부 0. 이 관문이 없으면 칸 앞 허공에 든 상품이 8점을 받는다 (2026-09-03 대조).
@@ -422,10 +447,15 @@ class ProductScorer:
             # 각도를 접지 않는다 -- 접으면 180° 가 0° 가 되어 거꾸로 선 것이 통과한다 (사용자 2026-09-08: 0점).
             if self.back_key and self.back_key in shelf:
                 m["up_ref"] = self.back_key
-                m["up_deg"] = round(up_angle_deg(q, shelf[self.back_key][1]), 1)
+                # 뒷줄 상품의 진열 자세는 그 상품 것을 쓴다 (거의 늘 같은 상품이지만 가정하지 않는다)
+                back_disp = (self.neighbours[self.back_key][0]
+                             if self.back_key in self.neighbours else self.display_quat)
+                m["up_deg"] = round(up_angle_deg(q, self.display_quat,
+                                                 shelf[self.back_key][1], back_disp), 1)
             else:
                 m["up_ref"] = "display"
-                m["up_deg"] = round(up_angle_deg(q, self.display_quat), 1)
+                m["up_deg"] = round(up_angle_deg(q, self.display_quat,
+                                                 self.display_quat, self.display_quat), 1)
             upright = m["up_deg"] < THRESHOLD["upright_deg"]
             pts["B15"] = POINTS["B15"] if upright else 0
 
@@ -471,7 +501,9 @@ class ProductScorer:
                 fallen.append((key, f"moved {self.neighbour_moved_mm[key]:.1f} mm"))
         m["neighbours_fallen"] = fallen
         m["neighbour_moved_max_mm"] = round(max(self.neighbour_moved_mm.values()), 1) if self.neighbour_moved_mm else 0.0
-        pts["B20"] = POINTS["B20"] if not fallen else 0
+        # B12 와 같다 -- **선반에 내려놓았을 때만** 본다 (사용자 2026-09-09). 상품을 든 채 끝난 판은
+        # 다른 상품을 안 건드렸더라도 진열을 마치지 못한 것이라 이 2점을 받지 않는다.
+        pts["B20"] = POINTS["B20"] if (placed and not fallen) else 0
 
         got = sum(v for v in pts.values() if v is not None)
         mx = sum(POINTS[k] for k, v in pts.items() if v is not None)
@@ -546,9 +578,19 @@ def score_npz(path, products=None, end_frame=None):
                 open_ref, closed_ref = float(g[b8:].min()), float(g[b8])
                 if abs(closed_ref - open_ref) > 0.1:
                     after = np.arange(b8, n_all)
-                    hit = np.abs(g[after] - open_ref) < np.abs(g[after] - closed_ref)
-                    if hit.any():
-                        release = int(after[int(np.argmax(hit))])
+                    opened = np.abs(g[after] - open_ref) < np.abs(g[after] - closed_ref)
+                    # 놓은 순간은 **마지막으로 닫혀 있던 프레임의 바로 다음**이다 -- 첫 열림이 아니다.
+                    # 첫 열림을 쓰면 중간에 한 번 놓았다 다시 집는 판이 그 첫 열림에서 끝나 버린다:
+                    # 사용자 2026-09-07 "상자 안으로 떨어뜨렸다가 다시 집어 진열 -- 이건 허용이야" 와 어긋나고,
+                    # 그리퍼가 옮기는 중에 잠깐 열렸다 닫혀도 거기서 끝난다 (둘 다 2026-09-09 에 시험해 걸렸다:
+                    # 제대로 진열한 판이 14/34 로 끝났다). `place_release_review.py:37` 이 3,824판에서 정한
+                    # 「마지막으로 닫혀 있던 프레임」과 같은 규칙이다.
+                    if (~opened).any():
+                        last_closed = int(after[len(opened) - 1 - int(np.argmax(~opened[::-1]))])
+                        if last_closed + 1 < n_all:
+                            release = last_closed + 1
+                    elif opened.any():
+                        release = int(after[int(np.argmax(opened))])
         if end_frame is not None:
             n, why = min(n_all, int(end_frame) + 1), "end_frame"
         elif release is not None and release + watch < n_all:
@@ -587,6 +629,17 @@ def score_npz(path, products=None, end_frame=None):
 # ---- 화면 -----------------------------------------------------------------------------------
 END_WORDS = {"placed": "선반 위에 놓음", "dropped": "떨어뜨림", "in_hand": "든 채 끝남"}
 ABORT_WORDS = {"crate_off_table": "상자가 탁자에서 떨어져 조합 중단"}
+
+# 채점을 **왜 그 프레임에서** 했나 -- 사람 말로. `end_by` 를 그대로 보여 주면 읽는 쪽이
+# 알 수 없다 (사용자 2026-09-09: "종료가 되었는데 왜 종료가 되었는지 알 수가 없어").
+WHY_END = {
+    "released+3s": "손을 편 뒤 3초 -- 시트가 정한 판정 시점",
+    "released, record ended early": "손을 폈지만 3초를 못 채우고 기록이 끝남",
+    "last": "기록의 마지막 프레임 -- 끝까지 손을 안 펴서 판정 시점을 못 찾음",
+    "dropped": "상품 밑면이 편의점 바닥에 닿은 순간 -- 그 뒤는 안 봄",
+    "crate_off_table": "파란 상자가 탁자에서 떨어진 순간 -- 조합 중단",
+    "end_frame": "밖에서 채점 시점을 지정함",
+}
 
 
 def reasons(r):
