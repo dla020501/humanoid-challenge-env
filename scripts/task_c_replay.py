@@ -218,6 +218,7 @@ from isaaclab.utils import configclass                                # noqa: E4
 from isaaclab.utils import math as math_utils                          # noqa: E402
 
 # 로봇은 과제 C 데이터 수집 판(taskC/taskC_ffw_sg2.py)을 쓴다. 공용 FFW_SG2.py 는 과제 A·B 값이라 다르다.
+from taskC.taskC_ffw_sg2 import _SG2_GRIPPER_MATERIAL              # noqa: E402
 from taskC.taskC_ffw_sg2 import (                                     # noqa: E402
     FFW_SG2_MOBILE_CFG, SG2_SWERVE_STEERING_JOINTS, SG2_SWERVE_WHEEL_JOINTS,
 )
@@ -322,8 +323,22 @@ _STORE_FWD = float(os.environ.get("TASKC_STORE_FWD", "0.0"))
 # 지나가는 것처럼 보이는 것이 이것이다. 수집 파이프라인도 상품에 안 줬지만, 그쪽에는
 # 기록을 되돌려 트는 재생기가 없어 이만큼 세게 미는 접촉 자체가 없었다.
 _PROD_SOLVER_POS = int(os.environ.get("TASKC_PROD_SOLVER", "32"))
+# 상품 접촉 오프셋(m). 접촉을 미리 만들어 깊이 파고들기 전에 잡는다 (권장 5~10 mm).
+_PROD_CONTACT_OFF = float(os.environ.get("TASKC_PROD_CONTACT_OFFSET", "0.005"))
 _PROD_FWD = os.environ.get("TASKC_PROD_FWD", "1") == "1"
 _prod_to_world = (lambda q: L.scene_to_world(q)) if _PROD_FWD else (lambda q: L.robot_to_world(q))
+
+# 턱 마찰. 0 이면 수집 판 값(정지 2.0 · 운동 1.8) 그대로 쓴다.
+#
+# `friction_combine_mode="max"` 라 턱과 상품 중 큰 쪽이 실효값이 된다. 상품 재질은 보통
+# 0.5~1.0 이라 턱이 큰 쪽이므로, 이 값을 올리면 그대로 쥐는 마찰이 올라간다. 운동 마찰은
+# 정지의 0.9 배로 같은 비율을 지킨다(2.0 : 1.8).
+#
+# **재생기 안에서만 걸린다** -- 평가 경로(task_c_demo.py)는 수집 판 값을 그대로 쓴다.
+GRIP_MU = float(os.environ.get("TASKC_GRIP_FRICTION", "0"))
+if GRIP_MU > 0:
+    _SG2_GRIPPER_MATERIAL.static_friction = GRIP_MU
+    _SG2_GRIPPER_MATERIAL.dynamic_friction = GRIP_MU * 0.9
 
 ARM_K_MUL = float(os.environ.get("TASKC_ARM_K_MUL", "25.0"))
 if ARM_K_MUL > 1.0:
@@ -381,7 +396,9 @@ class World(InteractiveSceneCfg):
                         disable_gravity=False, linear_damping=1.0, angular_damping=2.0,
                         solver_position_iteration_count=_PROD_SOLVER_POS,
                         solver_velocity_iteration_count=1,
-                        max_depenetration_velocity=5.0)),
+                        max_depenetration_velocity=5.0),
+                    collision_props=sim_utils.CollisionPropertiesCfg(
+                        contact_offset=_PROD_CONTACT_OFF, rest_offset=0.0)),
                 init_state=RigidObjectCfg.InitialStateCfg(
                     pos=tuple(float(v) for v in _prod_to_world(d["pos"])),
                     rot=tuple(float(v) for v in L.quat_robot_to_world(d["quat"])))))
@@ -394,6 +411,34 @@ def main():
     taskA_colliders.harden(stage, log=lambda *a: None)
     _log = lambda m: print(f"[i] {m}", flush=True)  # noqa: E731
     counter.deactivate_duplicates(stage, log=_log)
+    # 그리퍼 턱의 충돌 형상을 SDF 로 바꾸고 접촉 오프셋을 준다 -- 관통 대책.
+    #
+    # RH-P12-RN 의 턱은 안쪽이 오목한 갈고리다. USD 가 싣고 온 `convexHull` 은 그 오목한
+    # 부분을 메워 버려 실제 윤곽과 다른 덩어리가 되고, 그 상태로 물체를 물면 옆면으로
+    # 파고든다(IsaacLab #2651 · #3571 에 같은 증상과 처방이 있다). SDF 는 삼각형 메시를
+    # 그대로 거리장으로 써서 윤곽을 지킨다.
+    #
+    # 접촉 오프셋은 접촉을 미리 만들어 깊이 파고들기 전에 잡는 값이다(권장 5~10 mm).
+    # 재생기 안에서만 건다 -- 평가 경로(task_c_demo.py)는 건드리지 않는다.
+    # TASKC_JAW_SDF=0 으로 끈다.
+    if os.environ.get("TASKC_JAW_SDF", "1") == "1":
+        try:
+            from pxr import Usd as _U9, UsdPhysics as _UP9, PhysxSchema as _PS9
+            _co = float(os.environ.get("TASKC_JAW_CONTACT_OFFSET", "0.005"))
+            from taskC.taskC_ffw_sg2 import _is_sg2_gripper_jaw_prim as _is_jaw9
+            _root9 = stage.GetPrimAtPath("/World/envs/env_0/Robot")
+            _n9 = 0
+            for _pr9 in _U9.PrimRange(_root9):
+                _path9 = str(_pr9.GetPath())
+                if "/collisions/" not in _path9 or not _is_jaw9(_path9):
+                    continue
+                _UP9.MeshCollisionAPI.Apply(_pr9).CreateApproximationAttr().Set("sdf")
+                _PS9.PhysxCollisionAPI.Apply(_pr9).CreateContactOffsetAttr().Set(_co)
+                _PS9.PhysxCollisionAPI(_pr9).CreateRestOffsetAttr().Set(0.0)
+                _n9 += 1
+            _log("턱 충돌체 SDF %d개 · 접촉 오프셋 %.0f mm" % (_n9, _co * 1000))
+        except Exception as _e9:
+            _log("턱 SDF 불가: %r" % (_e9,))
     counter.remove_low_shelf(stage, log=_log)
     # V4-311: 스캐너와 로봇의 충돌을 **`sim.reset()` 전에** 끈다. 수집 파이프라인
     # (qr_sweep_replay.py 798~818)이 하는 그대로다. 리셋 뒤에 걸면 PhysX 가 이미 충돌 쌍을
