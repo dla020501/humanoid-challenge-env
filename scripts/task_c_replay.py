@@ -304,6 +304,27 @@ if LIFT_STIFFNESS > 0:
 # 설정 클래스 안에 두면 IsaacLab 이 자산으로 오인한다(`Unknown asset config type`).
 _STORE_FWD = float(os.environ.get("TASKC_STORE_FWD", "0.0"))
 
+# 상품을 띠와 함께 `SCENE_FWD` 만큼 옮길 것인가.
+#
+# 0 (기본) 이면 상품은 기록된 로봇 좌표 그대로다. 팔 궤적이 그 자리를 전제로 계획됐으므로
+# 옮기면 턱이 물체 중심을 못 물어 스쳐 지나가고, QR 타일도 빔 축에서 그만큼 벗어나 6 mm
+# 판정을 통과하지 못한다. 실측(GT 시드 0, 같은 6 mm):
+#
+#     상품 = 기록 자리   f691 에 인식 발화 (횡이탈 3.3 mm)
+#     상품 = +19.9 mm    f1412 까지 발화 없음
+#
+# 1 이면 띠와 한 덩어리로 움직인다 -- 띠와 상품의 상대 위치를 화면에서 맞춰 볼 때만 쓴다.
+# 상품 쪽 접촉 솔버. **로봇과 같은 값으로 맞춘다.**
+#
+# 로봇 아티큘레이션은 `solver_position_iteration_count=32` · `max_depenetration_velocity=5.0`
+# 으로 단단히 잡혀 있는데(taskC_ffw_sg2.py), 상품은 아무것도 주지 않아 USD 기본값(보통 4회)
+# 이었다. 접촉의 한쪽만 32회면 겹침이 상품 쪽으로 밀려 들어간다 -- 그리퍼가 물체를 뚫고
+# 지나가는 것처럼 보이는 것이 이것이다. 수집 파이프라인도 상품에 안 줬지만, 그쪽에는
+# 기록을 되돌려 트는 재생기가 없어 이만큼 세게 미는 접촉 자체가 없었다.
+_PROD_SOLVER_POS = int(os.environ.get("TASKC_PROD_SOLVER", "32"))
+_PROD_FWD = os.environ.get("TASKC_PROD_FWD", "1") == "1"
+_prod_to_world = (lambda q: L.scene_to_world(q)) if _PROD_FWD else (lambda q: L.robot_to_world(q))
+
 ARM_K_MUL = float(os.environ.get("TASKC_ARM_K_MUL", "25.0"))
 if ARM_K_MUL > 1.0:
     for _g in ("DY_80", "DY_70", "DP-42"):
@@ -357,9 +378,12 @@ class World(InteractiveSceneCfg):
                 spawn=sim_utils.UsdFileCfg(
                     usd_path=str(P.product_usd(d["slug"])),
                     rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                        disable_gravity=False, linear_damping=1.0, angular_damping=2.0)),
+                        disable_gravity=False, linear_damping=1.0, angular_damping=2.0,
+                        solver_position_iteration_count=_PROD_SOLVER_POS,
+                        solver_velocity_iteration_count=1,
+                        max_depenetration_velocity=5.0)),
                 init_state=RigidObjectCfg.InitialStateCfg(
-                    pos=tuple(float(v) for v in L.robot_to_world(d["pos"])),
+                    pos=tuple(float(v) for v in _prod_to_world(d["pos"])),
                     rot=tuple(float(v) for v in L.quat_robot_to_world(d["quat"])))))
 
 
@@ -606,7 +630,7 @@ def main():
         # 옮기면 턱이 중심을 못 물고 물체가 옆으로 튄다(실측: 19 mm 옮기니 y 로 24 mm 밀려
         # 나가고 쥐는 힘이 0.19 -> 0.047 로 무너져 들림 213 -> 40 mm). 수집 파이프라인도
         # `pos=tuple(p["pos"])` 로 로봇 좌표에 그대로 놓으며 보정 장치가 없다.
-        _set_root(scene[f"p_{k}"], L.robot_to_world(d["pos"]), L.quat_robot_to_world(d["quat"]))
+        _set_root(scene[f"p_{k}"], _prod_to_world(d["pos"]), L.quat_robot_to_world(d["quat"]))
     # 스캐너도 로봇 좌표 그대로다. 오른손이 이 자리로 와서 쥐므로 옮기면 손이 손잡이의
     # 다른 자리를 문다(실측: 19 mm 옮기니 파지가 y 17 mm · z 8 mm 어긋났다).
     _set_root(scene["scanner"], L.robot_to_world(L.SCANNER_HOLD_POS), L.quat_robot_to_world(L.SCANNER_HOLD_QUAT))
