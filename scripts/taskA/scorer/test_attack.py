@@ -497,6 +497,22 @@ elif _rthr["items"]["placed"]["points"]:
     FAIL.append("받쳐지지도 멈추지도 않고 띠를 지나가기만 했는데 얹힘을 줬다 "
                 "(띠 안 프레임 %d 개) -- 멈춤 조건이 일하지 않는다" % _inband)
 
+# ②-c **6 초 창은 위아래를 둘 다 본다.**
+#
+#    정상 안착은 이제 -0.8 mm 쯤으로 읽힌다.  앞 판은 「0 아래가 하나라도 있으면 최솟값만」
+#    이라 그 뒤 위로 들썩인 순간을 한 번도 안 봤다 -- 5.9 초 잘 있다가 0.1 초 +5.1 mm 로
+#    들린 판이 4 점을 받았다.  아래로 3 mm 넘게 파고든 순간도 같이 걸려야 한다.
+for _lbl, _bump, _want in (("0.1 초 +5.1 mm 들썩", +0.0051, 0.0),
+                           ("0.1 초 -3.1 mm 파고듦", -0.0031, 0.0),
+                           ("0.1 초 +4.9 mm (띠 안)", +0.0049, 4.0)):
+    _bw = _physics({k: np.array(v, copy=True) for k, v in A.items()}, _i0)
+    _bw["crate_pos"][_i0:, 2] = _top - 0.000804
+    _bw["crate_pos"][_i0 + 30, 2] = _top + _bump        # 놓고 3 초 뒤 한 프레임
+    _rb = R.score(SFL.merge([SFL.measure_one(copy.deepcopy(_HD), _bw, SCENE, TH)]))
+    if _rb["items"]["stayed"]["points"] != _want:
+        FAIL.append("-0.8 mm 로 앉았다가 %s 인데 6초 항목이 %g 점이다 (%g 점이어야 한다)"
+                    % (_lbl, _rb["items"]["stayed"]["points"], _want))
+
 # ③ 한 번도 안 받쳐지고 바닥까지 떨어진다 -> 얹힘이 아니고 낙하로 끝나야 한다
 _fall = {k: np.array(v, copy=True) for k, v in A.items()}
 _n = len(_fall["t"]) - _i0

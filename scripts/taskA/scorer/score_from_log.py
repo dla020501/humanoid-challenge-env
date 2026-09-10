@@ -605,7 +605,15 @@ def measure_one(head, a, scene, th):
             t_end = float(a["t"][w].max())
             tail = w & (a["t"] >= t_end - th["WATCH_TAIL_S"])
             s = seat_mm[w]
-            worst_seat = float(s.min() if (s < 0).any() else s.max())
+            # **위아래를 둘 다 보고, 한계를 더 많이 넘은 쪽**을 최악으로 고른다.
+            #
+            # 앞 판은 「0 아래가 하나라도 있으면 최솟값, 아니면 최댓값」이었다.  하한이 0 일
+            # 때는 맞았지만, 하한이 -3 mm 가 된 뒤로는 정상 안착이 늘 -0.8 mm 쯤으로 읽혀서
+            # 최솟값만 보게 되고 **위로 들썩인 순간(+5.1 mm)을 한 번도 안 봤다** -- 「5 mm
+            # 넘게 뜨면 0 점」이 사실상 꺼져 있었다 (2026-09-11 발견, test_attack ②-c).
+            lo, hi = float(s.min()), float(s.max())
+            worst_seat = (lo if (-th["SEAT_SINK_MAX_MM"] - lo) > (hi - th["SEAT_ON_MAX_MM"])
+                          else hi)
             tilt = np.array([GG.tilt_deg(q) for q in a["crate_quat"][w]])
             # **창 안에서 다시 잡으면 안 된다** (사용자 결정 2026-09-08).
             #
