@@ -163,8 +163,8 @@
  },
  "lotte_sand": {
   "pos": [
-   0.004,
-   -0.07200000000000001,
+   0.0052281,
+   -0.0824,
    -0.024
   ],
   "normal": [
@@ -173,7 +173,7 @@
    -1.0
   ],
   "uv_dist": 0.0,
-  "_pick": "phys-spawn magenta +9mm along v_dir (user 0904)"
+  "_fix": "UV 포함 삼각형(tri#1300) 실측 2026-09-10"
  },
  "matcha_songi": {
   "pos": [

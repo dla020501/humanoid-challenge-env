@@ -165,7 +165,7 @@ class BeamSheet:
         self._slot = int(slot)
         self._slug = slug
         self._nu = int(os.environ.get("TASKC_BEAM_NU", "25"))
-        self._nv = int(os.environ.get("TASKC_BEAM_NV", "7"))
+        self._nv = int(os.environ.get("TASKC_BEAM_NV", "11"))
         self._range = float(os.environ.get("TASKC_BEAM_RANGE_MM", "300")) / 1000.0
         self._lift = float(os.environ.get("TASKC_BEAM_LIFT_MM", "1.5")) / 1000.0
         self._rgb = [float(v) for v in
