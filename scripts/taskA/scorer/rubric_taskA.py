@@ -26,8 +26,7 @@
 #
 # 앞 판에서 바뀐 것만 (다시 읽지 않아도 되도록)
 #   * 집기 두 항목이 **하나로** 합쳐졌다 (4+4=8 -> 3, 둘 다 참이어야 통과)
-#   * 「들고 있었는가」가 **그리퍼 -> 로봇 전체**.  베이스에 얹어 나르는 것을 **허용**한다
-#     (시트: "실험해본 결과, 로봇의 바퀴 베이스에 두고 이동도 가능했기 때문에")
+#   * 「들고 있었는가」가 **그리퍼 -> 로봇 전체**.  나르는 방식은 채점하지 않는다
 #   * 도착에 숫자가 없어졌다 ("조금이라도 안에 들어가").  **로봇 발자국이 목표 구역에
 #     걸치면 통과** (사용자 결정 2026-09-02)
 #   * 책상 밀림이 5 -> **20 mm** 이고, 별도 항목이 아니라 `placed` 의 조건이 되었다
@@ -127,6 +126,39 @@ CONTACT_N = 0.5
 
 # 선언 (시트 Sub 3# ①).  "바구니 밑면이 상판에서 0 이상 5 mm 이하"
 SEAT_ON_MAX_MM = 5.0
+
+# 얹힘 판정의 **아래쪽** 여유 (mm).  「0 이상」이 아니라 「-3 mm 이상」인 이유:
+#
+# **이 시뮬레이터에서는 얹힌 물체가 언제나 받침면을 조금 파고든 채로 앉는다.**  PhysX 가
+# 접촉을 풀고 남기는 잔여 겹침이고, 크레이트 탓이 아니다 -- 같은 바깥치수·같은 질량의
+# **속이 찬 단순 박스**를 같은 자리에 놓아도 -0.617 mm 로 앉는다 (크레이트는 -0.673).
+#
+# 실측 (배포 이미지, 2026-09-10):
+#
+#     정착 겹침      0.29 ~ 1.03 mm    책상 상판 충돌면이 x 로 0.19 도 기울어져 있어
+#                                     자리를 탄다 (서쪽 -0.291, 동쪽 -1.033, 완전히 선형)
+#     받쳐진 최악    1.370 mm          놓일 수 있는 자리 전체 x 기울기 0~30 도 x 낙하 50~600 mm,
+#                                     |vz| < 0.05 m/s 인 프레임만 세어 23 회 중 최악
+#     3.0           그 2.2 배.  채점 서버의 물리가 이 기계와 다를 여지를 남긴 값이다
+#                   (`Task-A/CLAUDE.md` 68 절: 기계가 바뀌면 갈린다, 다른 양에서 1.9 배)
+#     52 mm         수집 1,451 편에서 관측된 **가장 얕은 진짜 실패**.  그 위는 통째로 비어 있다
+#
+# 즉 -5.3 ~ -2 mm 구간이 실데이터에서 완전히 비어 있어, 이 안의 어떤 값도 기존 편의 판정을
+# 바꾸지 않는다.  **채점 서버가 정해지면 거기서 겹침을 다시 재고 확인할 것** -- 한 줄이다.
+#
+# **이 여유가 안전한 것은 `seated` 가 「멈춰 있을 것」을 함께 요구하기 때문이다.**  그 조건이
+# 없으면 여유를 넓히는 것이 곧 통과 중인 프레임을 얹힘으로 세는 것이 된다.
+SEAT_SINK_MAX_MM = 3.0
+
+# 「책상에 있나, 바닥에 있나」의 자 (mm).  **얹힘 판정과 다른 물음이다.**
+#
+# 낙하 판정과 감시창 열기에만 쓴다.  바닥은 상판보다 725 mm 아래이므로 이 물음은 밀리미터
+# 정밀도가 필요 없다.  앞 판은 얹힘과 같은 식(0~5 mm)을 써서, 잔여 겹침이나 적분 오버슛
+# 한 프레임이 곧바로 「낙하」가 됐다 (이슈 #3).
+#
+# 50 mm 는 실측된 최악 오버슛(5.3 mm)의 9 배이고, 관측된 가장 얕은 진짜 실패(52 mm)보다는
+# 아래다 -- 둘 사이가 비어 있어 그 안이면 답이 같다.
+SEAT_NEAR_MM = 50.0
 
 # **재기만 하고 채점에 쓰지 않는다** (사용자 결정 2026-09-02):
 #
@@ -310,6 +342,7 @@ def thresholds():
     return dict(LIFT_OK_MM=LIFT_OK_MM, ARRIVE_ZONE_M=ARRIVE_ZONE_M,
                 ROBOT_FOOTPRINT=dict(ROBOT_FOOTPRINT), STOP_MM_S=STOP_MM_S,
                 CONTACT_N=CONTACT_N, SEAT_ON_MAX_MM=SEAT_ON_MAX_MM,
+                SEAT_SINK_MAX_MM=SEAT_SINK_MAX_MM, SEAT_NEAR_MM=SEAT_NEAR_MM,
                 OVERHANG_OK_MM=OVERHANG_OK_MM, OVERHANG_SCORED=OVERHANG_SCORED,
                 TILT_OK_DEG=TILT_OK_DEG,
                 WATCH_S=WATCH_S, WATCH_TAIL_S=WATCH_TAIL_S, DESK_OK_MM=DESK_OK_MM,
@@ -403,7 +436,7 @@ def score(m, th=None):
 
     # ---- Sub 2#  그 시점에 로봇이 들고 있었는가 -----------------------------------------------
     # **여기는 「그리퍼」가 아니라 「로봇」이다.**  시트가 명시적으로 갈라 놓았다 -- 바퀴
-    # 베이스에 얹어 나른 것도 통과다.  집기(`picked`)와 하나로 합치지 말 것.
+    # 나르는 방식은 채점하지 않는다.  집기(`picked`)와 하나로 합치지 말 것.
     # 「그 시점」은 **구역 안에 있던 동안**이다 (사용자 결정 2026-09-09).  놓는 프레임에
     # 걸면 안 된다 -- 실측으로 「가장 잘 얹힌 프레임」이 손을 뗀 뒤인 판이 있었다.
     # 뜻은 「가져갔는가」다: 바닥으로 밀거나 던져서 올린 로봇은 여기서 걸린다.
@@ -445,9 +478,10 @@ def score(m, th=None):
             items["placed"] = _item(False, "바구니가 책상 근처에 온 적이 없다")
         elif seat is None:
             items["placed"] = _item(None, "바구니나 책상 자세를 못 읽었다")
-        elif not (0.0 <= seat <= t["SEAT_ON_MAX_MM"]):
+        elif not (-t["SEAT_SINK_MAX_MM"] <= seat <= t["SEAT_ON_MAX_MM"]):
             items["placed"] = _item(False, f"상판 대비 높이 {seat:.1f} mm "
-                                           f"(0~{t['SEAT_ON_MAX_MM']:.0f} 이어야 한다)")
+                                           f"(-{t['SEAT_SINK_MAX_MM']:.0f}~"
+                                           f"{t['SEAT_ON_MAX_MM']:.0f} 이어야 한다)")
         elif place.get("upright_any") is False:
             # **뒤집혀 얹힌 것은 얹은 것이 아니다** (사용자 결정 2026-09-07).
             #
@@ -514,8 +548,9 @@ def score(m, th=None):
                 items["stayed"] = _item(None, "감시창 안에서 못 읽은 값이 있다")
             else:
                 bad = []
-                if not (0.0 <= w_seat <= t["SEAT_ON_MAX_MM"]):
-                    bad.append(f"받침 {w_seat:.1f} mm (0~{t['SEAT_ON_MAX_MM']:.0f})")
+                if not (-t["SEAT_SINK_MAX_MM"] <= w_seat <= t["SEAT_ON_MAX_MM"]):
+                    bad.append(f"받침 {w_seat:.1f} mm "
+                               f"(-{t['SEAT_SINK_MAX_MM']:.0f}~{t['SEAT_ON_MAX_MM']:.0f})")
                 # **걸침은 재기만 한다** (사용자 결정 2026-09-02, 위 상수의 머리말 참조).
                 # 켜고 싶으면 `OVERHANG_SCORED = True` 하나만 바꾸면 된다.
                 if t.get("OVERHANG_SCORED") and w_over > t["OVERHANG_OK_MM"]:

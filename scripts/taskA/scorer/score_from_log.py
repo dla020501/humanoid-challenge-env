@@ -179,11 +179,11 @@ def measure_one(head, a, scene, th):
     # 새 평가표(2026-09-02)는 두 물음을 **다른 범위**로 묻는다.
     #
     #   Sub 1# 집기   「**그리퍼**가 물고 있었나」   -> grip_max
-    #   Sub 2# 이동   「**로봇**이 들고 있었나」     -> robot_touch   (바퀴 베이스에 얹어도 통과)
+    #   Sub 2# 이동   「**로봇**이 들고 있었나」     -> robot_touch   (나르는 방식은 안 본다)
     #
     # 그래서 둘을 따로 읽는다.  `crate_robot_force` / `crate_nonrobot_force` 는 이 시트를 위해
     # 2026-09-02 에 로그에 들어간 열이다.  **옛 로그에는 없다** -- 그때는 그리퍼로 대신 읽고
-    # 그 사실을 메모에 남긴다.  조용히 대신 읽으면 "베이스에 얹어 나른 판"이 0점으로 찍히고
+    # 그 사실을 메모에 남긴다.  조용히 대신 읽으면 그리퍼로 물지 않은 판이 0점으로 찍히고
     # 이유가 로그 어디에도 안 남는다.
     grip_max = a["grip_force"].max(axis=1)
     other = a["crate_other_force"]
@@ -236,7 +236,7 @@ def measure_one(head, a, scene, th):
         free = nonrobot <= th["CONTACT_N"]
         out["notes"].append(
             "이 로그에는 로봇 전체 접촉(crate_robot_force)이 없어 **그리퍼로 대신 읽었다** — "
-            "베이스나 팔에 얹어 나른 판이라면 「들고 있었는가」가 틀리게 나온다")
+            "그리퍼로 물지 않고 나른 판이라면 「들고 있었는가」가 틀리게 나온다")
     held = on_robot & free                             # Sub 2# 의 「들고 있다」
     gripped = on_grip & free                           # Sub 1# 의 「물고 있다」
 
@@ -266,13 +266,46 @@ def measure_one(head, a, scene, th):
 
     # ── 책상 상판 높이는 매 프레임 따라간다 ─────────────────────────────────────────────
     # **상수로 쓰지 않는다** -- 책상은 밀리기만 하는 것이 아니라 들리는 일도 있다
-    # (CLAUDE.md 57 절).  씬 파일이 잰 상판 높이에, 그 뒤 책상이 움직인 z 를 더한다.
-    top0 = scene["desk"]["top_z"]
-    top = top0 + (a["desk_pos"][:, 2] - scene["desk"]["pos"][2])
+    # (CLAUDE.md 57 절).
+    #
+    # **원점 + 높이다.**  앞 판은 `scene["desk"]["top_z"]` 를 월드 높이로 쓰고 그 뒤 움직인
+    # 만큼을 더했다.  그런데 그 값은 `taskA_layout.desk_top_z()` 가 주던 `DESK_SIZE[2]`,
+    # 즉 책상의 **치수**였다.  책상 원점이 0 일 때만 우연히 맞고, 원점이 다르면 조용히
+    # 틀린다 -- 그리고 실제로 달랐다:
+    #
+    #     수집 환경   책상 원점 0.002 (동적 강체가 매장 바닥에 가라앉아 선다)
+    #     배포 환경   책상 원점 0.000 (kinematic 으로 못 박아 바닥에 2 mm 박혀 있었다)
+    #
+    # 기준면이 그 2 mm 를 안 따라가서, 배포 환경의 정상적인 놓기가 seat -0.673 mm 로 읽혀
+    # 「얹힘 아님」-> 「낙하」가 됐다 (참가자 이슈 #3, 2026-09-10.  재현: 같은 로그를 책상
+    # 높이만 바꿔 채점하면 18/21 ok 대 11/21 dropped).
+    #
+    # 과제 B 는 처음부터 `TABLE_TOP = TABLE_POS[2] + TABLE_SIZE[2]` 였다 (taskB_table.py:103).
+    # 우리가 그 상수를 가져오면서 `+ TABLE_POS[2]` 를 빠뜨린 것이고, 여기서 되돌린다.
+    #
+    # 로그의 `desk_pos` 를 직접 쓰므로 책상이 밀리든 들리든 매 프레임 저절로 따라간다 --
+    # 앞 판의 「씬 값 + 움직인 차이」 보정이 필요 없어진다.
+    desk_h = float(scene["desk"]["size"][2])          # 치수다.  월드 높이가 아니다
+    top = a["desk_pos"][:, 2] + desk_h
     seat_mm = (a["crate_pos"][:, 2] - top) * 1000.0
     corners = _corners(a["crate_pos"], a["crate_quat"])
     over_mm = _overhang_mm(corners, a["desk_pos"][:, :2], scene["desk"]["size"])
-    on_top = (seat_mm >= 0.0) & (seat_mm <= th["SEAT_ON_MAX_MM"]) & (over_mm <= 500.0)
+
+    # 바구니가 얼마나 빨리 움직이나.  **`seated` 보다 먼저 만들어야 한다** -- 아래에서 쓴다.
+    c_speed = _speed(a["crate_pos"], a["t"])
+    c_speed_reported = _reported_speed(a["crate_vel"])
+
+    # 「책상에 있나, 바닥에 있나」.  **얹힘 판정과 다른 물음이고 다른 자를 쓴다.**
+    #
+    # 이 배열은 낙하 판정(`dropped`)과 감시창을 여는 자리(`rel`)에만 쓰인다.  둘 다 묻는 것은
+    # 「바구니가 책상에 있나」이지 「제대로 얹혔나」가 아니다.  바닥은 상판보다 **725 mm**
+    # 아래이므로 이 물음에 5 mm 자를 댈 이유가 없다.
+    #
+    # 앞 판은 얹힘 판정과 **같은 식**을 썼고, 그래서 잔여 겹침(0.3~1.4 mm)이나 적분 오버슛
+    # 한 프레임이 곧바로 「낙하」가 됐다.
+    #
+    # **여기에는 멈춤 조건을 걸지 않는다.**  튕기는 중인 바구니가 낙하로 찍히면 안 된다.
+    on_top = (np.abs(seat_mm) <= th["SEAT_NEAR_MM"]) & (over_mm <= 500.0)
 
     # **「제대로 얹혔다」를 한 곳에서만 정한다.**
     #
@@ -281,13 +314,22 @@ def measure_one(head, a, scene, th):
     # 판단하면 "얹혔는데 도착이 아니다" 같은 답이 나온다.
     #
     # 높이와 자세를 **같은 프레임에서** 함께 본다 -- 뒤집어 엎어 놓아도 높이는 맞기 때문이다.
+    #
+    # **멈춰 있을 것을 함께 요구한다.**  이것이 「떨어진 것」과 「파고든 것」을 가르는 자리다.
+    #
+    #   얹힌 바구니     속도 0            (정답 주행 실측: 창 끝 0.3 mm/s)
+    #   떨어지는 바구니   낙하 속도 그대로
+    #   오버슛 프레임    낙하 속도 그대로   (실측: seat -5.344 mm 인 프레임의 vz 가 -2.779 m/s.
+    #                                    한 적분 스텝 8.3 ms 에 23 mm 를 지나간 위치이지
+    #                                    눌려 들어간 것이 아니다.  다음 스텝에 -1.075 로 올라온다)
+    #
+    # 이 조건이 없으면 아래쪽 여유를 넓히는 것이 곧 「통과 중인 프레임도 얹힘으로 센다」가
+    # 된다.  조건이 있으면 여유는 **정말로 받쳐진 채 겹친 양**만 흡수한다.
     tilt_all = np.array([GG.tilt_deg(q) for q in a["crate_quat"]], dtype=np.float64)
-    seated = (seat_mm >= 0.0) & (seat_mm <= th["SEAT_ON_MAX_MM"])
+    seated = ((seat_mm >= -th["SEAT_SINK_MAX_MM"]) & (seat_mm <= th["SEAT_ON_MAX_MM"])
+              & (c_speed < th["STOP_MM_S"]))
     upright = tilt_all <= th["TILT_OK_DEG"]
     placed_ok = seated & upright
-
-    c_speed = _speed(a["crate_pos"], a["t"])
-    c_speed_reported = _reported_speed(a["crate_vel"])
 
     # ── 판이 끝나는 자리 ────────────────────────────────────────────────────────────────
     #
@@ -643,7 +685,8 @@ def main():
     args = ap.parse_args()
 
     th = {k: getattr(R, k) for k in ("LIFT_OK_MM", "ARRIVE_ZONE_M", "STOP_MM_S", "CONTACT_N",
-                                     "SEAT_ON_MAX_MM", "OVERHANG_OK_MM", "TILT_OK_DEG",
+                                     "SEAT_ON_MAX_MM", "SEAT_SINK_MAX_MM", "SEAT_NEAR_MM",
+                                     "OVERHANG_OK_MM", "TILT_OK_DEG",
                                      "WATCH_S", "WATCH_TAIL_S", "DESK_OK_MM", "TIME_LIMIT_S")}
     parts, heads = [], []
     scene = None

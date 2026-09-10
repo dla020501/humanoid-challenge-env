@@ -106,8 +106,9 @@ check("멈췄지만 구역 밖", got(r, "arrived"), False)
 check("구역 밖이면 held 도 False", got(r, "held"), False)
 
 # ── Sub 2# 들고 있었는가는 **로봇 전체**다 (시트가 그리퍼와 갈라 놓았다) ─────────────────
-# 바퀴 베이스에 얹어 나른 판.  앞 판(30점)에서는 0점이었고 지금은 통과다.
-check("베이스에 얹어 나름", got(R.score(m(arrive={"held": True})), "held"), True)
+# 그리퍼로 물지 않고 나른 판.  앞 판(30점)에서는 0점이었고 지금은 통과다 --
+# 「들고 있었는가」는 로봇 전체로 보고 나르는 방식은 채점하지 않는다.
+check("그리퍼로 안 물고 나름", got(R.score(m(arrive={"held": True})), "held"), True)
 check("로봇 아닌 것이 받침", got(R.score(m(arrive={"held": False})), "held"), False)
 
 # ── ALL 1# 충돌은 판을 끝낸다 ─────────────────────────────────────────────────────────
@@ -395,6 +396,16 @@ else:
     near("붙박이 목표 x", R.FIXTURE_GOAL_XY[0], _L.goal_pose()[0], 1e-4)
     near("붙박이 목표 y", R.FIXTURE_GOAL_XY[1], _L.goal_pose()[1], 1e-4)
 
+    # **상판 높이는 원점 + 높이여야 한다.**  앞 판은 높이(치수)만 돌려줘서, 책상 원점이
+    # 0 이 아닌 순간 기준면이 조용히 틀렸다 (이슈 #3).  과제 B 는 처음부터 옳았다:
+    #     taskB_table.TABLE_TOP = TABLE_POS[2] + TABLE_SIZE[2]
+    near("상판 높이 = 원점 + 높이",
+         _L.desk_top_z(), _L.DESK_POS[2] + _L.DESK_SIZE[2], 1e-9)
+    check("상판 높이가 치수와 다르다 (원점이 0 이 아니므로)",
+          abs(_L.desk_top_z() - _L.DESK_SIZE[2]) > 1e-9, True)
+    # 책상은 매장 충돌 바닥(+0.002) **위에** 서야 한다.  바닥에 박히면 안 된다.
+    near("책상 원점 = 매장 바닥 높이", _L.DESK_POS[2], 0.002, 1e-9)
+
 
 
 # ── 매장 이탈 (사용자 결정 2026-09-10) ──────────────────────────────────────────────
@@ -435,6 +446,41 @@ check("이탈: 사유가 출력에 남는다", _o["ended"], "out_of_store")
 check("이탈: 사유 문장이 충돌과 구분된다",
       "매장 밖으로 나가" in _o["items"]["placed"]["why"], True)
 check("이탈도 분모는 21 고정", _o["possible"], 21.0)
+
+
+
+# ── 아래쪽 여유 (2026-09-10, 참가자 이슈 #3) ────────────────────────────────────────
+#
+# 이 시뮬레이터에서는 **얹힌 물체가 언제나 받침면을 조금 파고든 채로 앉는다** (PhysX 잔여
+# 겹침).  실측 0.29~1.37 mm 이고 크레이트 탓이 아니다 -- 속이 찬 단순 박스도 -0.617 mm.
+# 앞 판은 하한이 0 이라 정상적인 놓기가 「얹힘 아님」-> 「낙하」로 찍혔다.
+#
+# **여기서 하한을 시험하지 않으면 아무도 안 지킨다** -- 이 값을 넣기 전 두 시험 묶음이
+# 그대로 통과했다.  기존 시험이 0 과 -3 사이를 한 번도 안 찔러 봤기 때문이다.
+check("여유 3 mm", R.SEAT_SINK_MAX_MM, 3.0)
+check("«책상이냐 바닥이냐» 자 50 mm", R.SEAT_NEAR_MM, 50.0)
+
+check("정상 안착(-0.8 mm)은 얹힘이다",
+      got(R.score(m(place={"seat_mm": -0.8})), "placed"), True)
+check("실측 최악(-1.4 mm)도 얹힘이다",
+      got(R.score(m(place={"seat_mm": -1.4})), "placed"), True)
+check("여유 안쪽(-2.9 mm)은 통과",
+      got(R.score(m(place={"seat_mm": -2.9})), "placed"), True)
+check("여유 밖(-3.1 mm)은 실패",
+      got(R.score(m(place={"seat_mm": -3.1})), "placed"), False)
+check("바닥까지 떨어진 것(-725 mm)은 당연히 실패",
+      got(R.score(m(place={"seat_mm": -725.0})), "placed"), False)
+
+check("6초 창도 같은 하한을 쓴다 (-0.8 통과)",
+      got(R.score(m(watch={"seat_mm": -0.8})), "stayed"), True)
+check("6초 창 여유 밖(-3.1)은 실패",
+      got(R.score(m(watch={"seat_mm": -3.1})), "stayed"), False)
+
+# 두 항목이 **같은 하한**을 써야 한다 -- 갈라지면 "얹혔는데 6초는 아니다" 가 나온다
+for _v in (-2.9, -3.1):
+    _p = got(R.score(m(place={"seat_mm": _v})), "placed")
+    _w = got(R.score(m(watch={"seat_mm": _v})), "stayed")
+    check(f"얹음과 6초의 하한이 같다 ({_v} mm)", _p, _w)
 
 
 print(f"전부 통과 ({len(R.ITEMS)}항목 {sum(R.POINTS.values()):.0f}점 × 시도 {R.ATTEMPTS} = "

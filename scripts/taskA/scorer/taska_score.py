@@ -44,7 +44,8 @@ import rubric_taskA as R          # noqa: E402
 import score_from_log as SFL      # noqa: E402
 
 THRESHOLD_KEYS = ("LIFT_OK_MM", "ARRIVE_ZONE_M", "STOP_MM_S", "CONTACT_N",
-                  "SEAT_ON_MAX_MM", "OVERHANG_OK_MM", "TILT_OK_DEG",
+                  "SEAT_ON_MAX_MM", "SEAT_SINK_MAX_MM", "SEAT_NEAR_MM",
+                  "OVERHANG_OK_MM", "TILT_OK_DEG",
                   "WATCH_S", "WATCH_TAIL_S", "DESK_OK_MM", "TIME_LIMIT_S")
 
 

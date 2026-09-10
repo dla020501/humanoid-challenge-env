@@ -401,6 +401,132 @@ if _ph.get("stopped_why") != "hit":
     FAIL.append("충돌이 이탈보다 먼저인데 %r 로 끝났다" % _ph.get("stopped_why"))
 
 
+# ── 「떨어진 것」과 「파고든 것」을 가르는 것은 **속도**다 (2026-09-10, 이슈 #3) ─────────
+#
+# 얹힘 판정에 아래쪽 여유를 준 이상, 그 여유가 «통과 중인 프레임»까지 삼키면 안 된다.
+# 가르는 것은 띠의 너비가 아니라 **받쳐져 멈춰 있나**이다:
+#
+#     얹힌 바구니      속도 0
+#     떨어지는 바구니   낙하 속도 그대로
+#     오버슛 프레임     낙하 속도 그대로 (실측: seat -5.344 mm 인 프레임의 vz 가 -2.779 m/s.
+#                                      한 적분 스텝 8.3 ms 에 23 mm 를 지나간 위치다)
+def _place_frame(a, scene):
+    """상판에 처음 앉는 프레임 번호."""
+    topz = float(scene["desk"]["pos"][2]) + float(scene["desk"]["size"][2])
+    seat = (a["crate_pos"][:, 2].astype(np.float64) - topz) * 1000.0
+    idx = np.flatnonzero((seat >= -2.0) & (seat <= 3.0))
+    return int(idx[0]) if idx.size else None
+
+
+def _physics(a, i0):
+    """놓기 전에는 로봇이 쥐고, 놓은 뒤에는 책상이 받치는 힘을 채운다 (참가자 판의 모양)."""
+    a["crate_robot_force"][:i0] = 5.0
+    a["crate_robot_force"][i0:] = 0.0
+    a["crate_nonrobot_force"][:i0] = 0.0
+    a["crate_nonrobot_force"][i0:] = 12.0
+    return a
+
+
+_HD = copy.deepcopy(HEAD)
+_HD["kinematic"] = False
+_i0 = _place_frame(A, SCENE)
+_dt = float(np.median(np.diff(A["t"])))
+
+# ① 정상 안착: 실측 겹침만큼 파고든 채 **멈춰 있다** -> 얹힘이다
+_ok = _physics({k: np.array(v, copy=True) for k, v in A.items()}, _i0)
+_top = float(SCENE["desk"]["pos"][2]) + float(SCENE["desk"]["size"][2])
+_ok["crate_pos"][_i0:, 2] = _top - 0.000804
+_r = R.score(SFL.merge([SFL.measure_one(copy.deepcopy(_HD), _ok, SCENE, TH)]))
+if _r["items"]["placed"]["points"] == 0 or _r["items"]["stayed"]["points"] == 0:
+    FAIL.append("정상 안착(-0.804 mm, 멈춤)이 얹힘으로 안 잡힌다 -- 이슈 #3 이 되돌아왔다")
+if _r["ended"] != "ok":
+    FAIL.append("정상 안착인데 판이 %r 로 끝났다" % _r["ended"])
+
+# ② **적분 오버슛**: 떨어져 내려오다 한 프레임만 상판 아래에 찍히고 다음 프레임에 앉는다.
+#
+#    실측 그대로의 모양이다 (배포 이미지, 낙하 400 mm, 120 Hz, 3 회 재현):
+#        스텝 31  seat +17.819 mm  vz -2.698 m/s
+#        스텝 32  seat  -5.344 mm  vz -2.779 m/s   <- 아직 낙하 속도다.  눌린 것이 아니다
+#        스텝 33  seat  -1.075 mm  vz -0.031 m/s
+#
+#    **낙하로 찍히면 안 되고**(그 프레임은 통과 중이다), 그 뒤 앉은 프레임들로 얹힘은 받아야 한다.
+#    앞 판은 이 한 프레임 때문에 판이 끝났다.
+_ov = _physics({k: np.array(v, copy=True) for k, v in A.items()}, _i0)
+_ov["crate_pos"][_i0 - 2, 2] = _top + 0.0400          # 내려오는 중
+_ov["crate_pos"][_i0 - 1, 2] = _top + 0.0178
+_ov["crate_pos"][_i0, 2] = _top - 0.005344            # 한 프레임만 상판 아래를 지나간다
+_ov["crate_pos"][_i0 + 1:, 2] = _top - 0.000804       # 그 다음부터 앉아서 안 움직인다
+_p = SFL.measure_one(copy.deepcopy(_HD), _ov, SCENE, TH)
+if _p.get("stopped_why") == "dropped":
+    FAIL.append("오버슛 한 프레임이 낙하로 찍혔다 -- on_top 의 자가 너무 좁다")
+_rov = R.score(SFL.merge([_p]))
+if _rov["items"]["placed"]["points"] == 0:
+    FAIL.append("오버슛 뒤에 제대로 앉았는데 얹힘을 못 받았다")
+# 그리고 **그 통과 프레임 자체는 얹힘이 아니어야 한다** -- 멈춤 조건이 하는 일이 이것이다
+_seat_ov = (_ov["crate_pos"][_i0, 2] - _top) * 1000.0
+if -TH["SEAT_SINK_MAX_MM"] <= _seat_ov <= TH["SEAT_ON_MAX_MM"]:
+    FAIL.append("시험이 틀렸다: 오버슛 프레임(%.3f mm)이 띠 안에 있어 멈춤 조건을 시험 못 한다"
+                % _seat_ov)
+
+# ②-b **띠 안에 있는데 움직이는 프레임**은 얹힘이 아니어야 한다.
+#
+#    ② 의 오버슛(-5.3 mm)은 띠 밖이라 띠만으로도 걸러진다.  멈춤 조건이 진짜로 일하는지
+#    보려면 **띠 안(-1 mm)인데 낙하 속도인** 프레임을 넣어야 한다.  그 조건이 없으면
+#    아래쪽 여유를 넓힌 것이 곧 「통과 중인 프레임도 얹힘」이 된다.
+#
+#    자유낙하 식으로는 이 프레임을 못 만든다 -- 10 Hz 로 표본하는데 상판을 지날 때 속도가
+#    2 m/s 대라 한 프레임에 200 mm 넘게 움직이고, 폭 8 mm 인 띠를 통째로 건너뛴다.
+#    (그 자체가 안심할 근거이기도 하다: 그냥 떨어지는 바구니는 띠에 거의 안 찍힌다.)
+#    그래서 그 한 프레임을 **손으로 놓는다.**
+_thr = {k: np.array(v, copy=True) for k, v in A.items()}
+_k = _i0 + 4
+_thr["crate_pos"][:, 2] = _top + 0.300              # 위에 떠 있다가
+_thr["crate_pos"][_k - 1, 2] = _top + 0.230
+_thr["crate_pos"][_k, 2] = _top - 0.001             # <- 띠 안(-1 mm)인데
+_thr["crate_pos"][_k + 1:, 2] = _top - 0.230        #    앞뒤로 230 mm 씩 움직인다 (2.3 m/s)
+_thr["crate_robot_force"][:] = 0.0
+_thr["crate_robot_force"][:_i0] = 5.0               # 그 전에는 쥐고 있었다
+_thr["crate_nonrobot_force"][:] = 0.0               # 아무것도 안 받친다
+_sthr = (_thr["crate_pos"][:, 2].astype(np.float64) - _top) * 1000.0
+_inband = int(((_sthr >= -TH["SEAT_SINK_MAX_MM"]) & (_sthr <= TH["SEAT_ON_MAX_MM"])).sum())
+_pthr = SFL.measure_one(copy.deepcopy(_HD), _thr, SCENE, TH)
+_rthr = R.score(SFL.merge([_pthr]))
+if _inband == 0:
+    FAIL.append("시험이 틀렸다: 띠 안 프레임을 못 만들어 멈춤 조건을 시험 못 한다")
+elif _rthr["items"]["placed"]["points"]:
+    FAIL.append("받쳐지지도 멈추지도 않고 띠를 지나가기만 했는데 얹힘을 줬다 "
+                "(띠 안 프레임 %d 개) -- 멈춤 조건이 일하지 않는다" % _inband)
+
+# ③ 한 번도 안 받쳐지고 바닥까지 떨어진다 -> 얹힘이 아니고 낙하로 끝나야 한다
+_fall = {k: np.array(v, copy=True) for k, v in A.items()}
+_n = len(_fall["t"]) - _i0
+_t = np.arange(_n) * _dt
+_z = np.maximum(0.003 - 0.5 * 9.81 * _t ** 2, -0.725)
+_fall["crate_pos"][_i0:, 2] = _top + _z
+_fall["crate_robot_force"][:_i0] = 5.0
+_fall["crate_robot_force"][_i0:] = 0.0
+_fall["crate_nonrobot_force"][:_i0] = 0.0
+_fall["crate_nonrobot_force"][_i0:] = np.where(_z <= -0.7249, 12.0, 0.0)
+_rf = R.score(SFL.merge([SFL.measure_one(copy.deepcopy(_HD), _fall, SCENE, TH)]))
+if _rf["items"]["placed"]["points"] or _rf["items"]["stayed"]["points"]:
+    FAIL.append("한 번도 안 얹히고 바닥까지 떨어졌는데 놓기 점수가 남았다")
+if _rf["ended"] != "dropped":
+    FAIL.append("바닥까지 떨어졌는데 판이 %r 로 끝났다 -- dropped 여야 한다" % _rf["ended"])
+
+# ④ 기준면이 책상을 따라간다: 책상 높이만 바꿔도 같은 놓기는 같은 점수여야 한다
+#    (이슈 #3 의 핵심.  앞 판은 여기서 18/21 대 11/21 로 갈렸다)
+_scores = {}
+for _dz in (0.000, 0.002, 0.010):
+    _sc = copy.deepcopy(SCENE)
+    _sc["desk"]["pos"] = [_sc["desk"]["pos"][0], _sc["desk"]["pos"][1], _dz]
+    _aa = _physics({k: np.array(v, copy=True) for k, v in A.items()}, _i0)
+    _aa["desk_pos"][:, 2] = _dz
+    _aa["crate_pos"][_i0:, 2] = (_dz + float(SCENE["desk"]["size"][2])) - 0.000804
+    _scores[_dz] = R.score(SFL.merge([SFL.measure_one(copy.deepcopy(_HD), _aa, _sc, TH)]))["total"]
+if len(set(_scores.values())) != 1:
+    FAIL.append("책상 높이만 바꿨는데 점수가 갈린다 %r -- 기준면이 책상을 안 따라간다" % _scores)
+
+
 if FAIL:
     print("실패 %d건" % len(FAIL))
     for f in FAIL:
