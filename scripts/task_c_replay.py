@@ -489,6 +489,9 @@ def main():
     scan_look.enable_glow(log=_log)
     scan_look.paint_dark(stage, log=_log)
     led = scan_look.bind_led(stage, log=_log)
+    # V4-346: 사출점 왼쪽 레이저 개구의 빨간 점. 스캐너 자식이라 용접을 따라간다.
+    # 리셋 전에 만들어야 한다 -- 리셋 뒤에 붙인 프림은 물리 뷰에 안 잡힌다.
+    scan_look.add_window_dot(stage, L.SCANNER_EMIT_LOCAL, log=_log)
     # 판독 시각을 초 단위로 주면 그 때 깜빡인다 (기록판 로그의 `V4-194 LED 깜빡임 sim t=`).
     # dev 재생기에는 판독기가 없어 기본은 상시 점등이다.
     led_at = [float(v) for v in os.environ.get("TASKC_LED_BLINK_AT", "").replace(" ", "").split(",") if v]

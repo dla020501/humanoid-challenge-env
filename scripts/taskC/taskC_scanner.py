@@ -9,6 +9,9 @@
 #     [RPL] V4-28 스캐너 다크 도색 (0.018,0.018,0.022) 메시 1개
 #     [RPL] V4-194 스캐너 LED 준비 (색 [0.12, 0.8, 0.08], 강도 6000.0,
 #                                   상시 점등 / 판독 시 3회 0.5s 깜빡임)
+#     [RPL] v5-5b LED 블럭 정사각 7x7mm 두께 0.5mm
+#     [RPL] V4-346 스캐너 빨간 점 ON (r 3mm, 사출점 기준 -8/+0/-1mm)
+#     [RPL] V4-346b 빨간 점 HDR 발광 (색 1.0,0.03,0.0, 강도 12000)
 #
 # 세기 8.0 / 임계 0.05 는 v5 소스의 기본값(4.0 / 0.3)이 아니라 기록판이 환경변수로 준
 # 값이다. 기본값을 쓰면 광채가 약해 GT 와 다른 그림이 된다.
@@ -16,7 +19,7 @@
 import math
 import os
 
-__all__ = ["enable_glow", "paint_dark", "bind_led", "ScannerLed"]
+__all__ = ["enable_glow", "paint_dark", "bind_led", "add_window_dot", "ScannerLed"]
 
 SCANNER_PRIM = "/World/envs/env_0/Scanner"
 
@@ -192,4 +195,64 @@ def bind_led(stage, prim_path=SCANNER_PRIM, log=None):
         return ScannerLed(shd, intensity, n, s, log=log)
     except Exception as e:
         log("V4-194 LED 불가: %r" % (e,))
+        return None
+
+
+def add_window_dot(stage, emit_local, prim_path=SCANNER_PRIM, log=None):
+    """V4-346: 스캐너 창의 빨간 레이저 개구. 사출점 왼쪽에 붙는 납작한 정육면체다.
+
+    스캐너 프림의 **자식**으로 만들기 때문에 오른손 용접을 저절로 따라간다. 프림 하나에
+    발광 재질뿐이라 비용은 없다시피 하다.
+
+    재질은 OmniPBR 로 간다(V4-346b). PreviewSurface 는 채널당 1.0 이 상한이라 발광 배율을
+    주면 빨강이 핑크로 뜬다.
+
+    `TASKC_LED_DOT=0` 으로 끈다. 수집 파이프라인(v5)의 기본값은 0 이므로, 동봉된 학습
+    데이터와 그림을 정확히 맞추려면 0 으로 두면 된다.
+    """
+    log = log or _noop
+    if os.environ.get("TASKC_LED_DOT", "1") != "1":
+        return None
+    try:
+        import isaaclab.sim as sim_utils
+        from pxr import UsdShade, Sdf, Gf
+        side = float(os.environ.get("TASKC_LED_DOT_SIDE_MM", "7")) / 1000.0
+        thick = float(os.environ.get("TASKC_LED_DOT_T_MM", "0.5")) / 1000.0
+        dx = float(os.environ.get("TASKC_LED_DOT_DX_MM", "-8")) / 1000.0
+        dy = float(os.environ.get("TASKC_LED_DOT_DY_MM", "0")) / 1000.0
+        dz = float(os.environ.get("TASKC_LED_DOT_DZ_MM", "-1")) / 1000.0
+        rgb = tuple(float(v) for v in
+                    os.environ.get("TASKC_LED_DOT_RGB", "1.0,0.03,0.0").split(","))
+        intensity = float(os.environ.get("TASKC_LED_DOT_INTENSITY", "12000"))
+        dot_path = prim_path + "/LedDot"
+        cfg = sim_utils.CuboidCfg(
+            size=(side, side, thick),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=rgb, roughness=0.4))
+        cfg.func(dot_path, cfg,
+                 translation=(float(emit_local[0]) + dx,
+                              float(emit_local[1]) + dy,
+                              float(emit_local[2]) + dz - thick / 2))
+        mat = UsdShade.Material.Define(stage, "/World/Looks/LedDot346")
+        shd = UsdShade.Shader.Define(stage, "/World/Looks/LedDot346/Shader")
+        shd.CreateImplementationSourceAttr(UsdShade.Tokens.sourceAsset)
+        shd.SetSourceAsset(Sdf.AssetPath("OmniPBR.mdl"), "mdl")
+        shd.SetSourceAssetSubIdentifier("OmniPBR", "mdl")
+        shd.CreateInput("diffuse_color_constant", Sdf.ValueTypeNames.Color3f).Set(
+            Gf.Vec3f(0.2, 0.0, 0.0))
+        shd.CreateInput("reflection_roughness_constant", Sdf.ValueTypeNames.Float).Set(0.30)
+        shd.CreateInput("metallic_constant", Sdf.ValueTypeNames.Float).Set(0.0)
+        shd.CreateInput("enable_emission", Sdf.ValueTypeNames.Bool).Set(True)
+        shd.CreateInput("emissive_color", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*rgb))
+        shd.CreateInput("emissive_intensity", Sdf.ValueTypeNames.Float).Set(intensity)
+        mat.CreateSurfaceOutput("mdl").ConnectToSource(shd.ConnectableAPI(), "out")
+        mat.CreateDisplacementOutput("mdl").ConnectToSource(shd.ConnectableAPI(), "out")
+        mat.CreateVolumeOutput("mdl").ConnectToSource(shd.ConnectableAPI(), "out")
+        dot = stage.GetPrimAtPath(dot_path)
+        UsdShade.MaterialBindingAPI.Apply(dot).Bind(mat, UsdShade.Tokens.strongerThanDescendants)
+        log("v5-5b LED 블럭 정사각 %.0fx%.0fmm 두께 %.1fmm" % (side * 1000, side * 1000, thick * 1000))
+        log("V4-346 스캐너 빨간 점 ON (사출점 기준 %+.0f/%+.0f/%+.0fmm, 색 %s, 강도 %.0f)"
+            % (dx * 1000, dy * 1000, dz * 1000, list(rgb), intensity))
+        return dot_path
+    except Exception as e:
+        log("V4-346 빨간 점 불가: %r" % (e,))
         return None
