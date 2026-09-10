@@ -510,10 +510,10 @@ def main():
             from taskC.scorer.qr_decode import QrReader
             _expect = {p["slug"]: P.qr_code(p["slug"]) for p in PRODUCTS}
             qr = QrReader(scene["scan_cam"], _expect, log=_log)
-            _log("QR 이미지 판독 = 예선 횡이탈 %.1fmm(x%.1f) 안에서만 디코드,"
-                 " 읽히면 %.0f초 쉼"
-                 % (float(os.environ.get("TASKC_RECOG_R_MM", "6")) * qr.gate_mul,
-                    qr.gate_mul, qr.cooldown))
+            _log("QR 이미지 판독 = 횡이탈<=%.0fmm 축거리 %.0f~%.0fmm 면각<=%.0f도"
+                 " 화각<=%.0f도 안에서만 디코드, 읽히면 %.0f초 쉼"
+                 % (qr.lat_max, qr.d_min, qr.d_max, qr.face_max, qr.cone_half,
+                    qr.cooldown))
         except Exception as _eq:
             _log("QR 이미지 판독 준비 불가: %r" % (_eq,))
 
@@ -812,8 +812,9 @@ def main():
                     _nq = sh.update(_o, _dl, _rl, _ul / max(np.linalg.norm(_ul), 1e-12), k)
                     _lit, _fired = recog.step(_b0, _bd, _pp, _R, _nq, k)
                     if qr is not None:
-                        # 넓은 예선 -> 그 프레임만 그림 판독 -> 읽히면 냉각.
-                        _in, _glat, _gd = recog.gate(_b0, _bd, _pp, _R, qr.gate_mul)
+                        # 판독 창 -> 그 프레임만 그림 판독 -> 읽히면 냉각.
+                        _tw9, _tn9 = recog.tile_world(_pp, _R)
+                        _in, _glat, _gd = qr.in_window(_b0, _bd, _tw9, _tn9)
                         _hit = qr.try_read(sim, _b0, _bd, PRODUCTS[cur_slot]["slug"],
                                            k / REC_HZ, _in)
                         if _hit is not None and _hit[1]:

@@ -4,9 +4,9 @@
 # 「판독은 스캐너 카메라 이미지로 한다. 실물 스캐너가 보는 것과 같은 시점이어야 하므로
 # 다른 카메라를 쓰지 않는다. 디코더가 그 시도 상품의 기대 코드 문자열을 반환해야 한다.」
 #
-# **매 프레임 읽지 않는다.** 렌더가 비싸고, 실물 스캐너도 늘 읽고 있지 않다.
+# 매 프레임 읽지 않는다. 렌더가 비싸고, 실물 스캐너도 늘 읽고 있지 않다.
 #
-#     1  기하 게이트   기존 인식 조건을 1.5 배로 넓혀 대기한다. 여기 들어와야 다음으로 간다
+#     1  판독 창       수집 파이프라인의 판독 수용 실측값 안에 들어와야 다음으로 간다
 #     2  이미지 판독   그 프레임만 스캐너캠을 렌더해 디코드한다
 #     3  냉각          한 번 읽히면 5 초 동안 판독기를 끈다. 게이트를 벗어나도 끈다
 #
@@ -37,13 +37,23 @@ def scan_cam_cfg():
 class QrReader:
     """게이트를 넘긴 프레임에서만 스캐너캠을 읽는다."""
 
-    def __init__(self, cam, expect_by_slug, log=None, gate_mul=None,
+    def __init__(self, cam, expect_by_slug, log=None,
                  cooldown_s=None, render_n=None):
         self.cam = cam
         self.expect = dict(expect_by_slug)
         self._log = log or (lambda m: None)
-        # 게이트 배율. 기하 인식의 횡이탈 한계를 이만큼 넓혀 「읽어 볼 만한 자리」로 삼는다.
-        self.gate_mul = float(os.environ.get("TASKC_QR_GATE_MUL", gate_mul or 1.5))
+        # 판독 창. 수집 파이프라인의 판독 수용 실측값을 그대로 쓴다 -- 횡이탈 40 mm,
+        # 축거리 50~150 mm, 면각 12도, 원뿔 반각 18도(focal 32mm 의 half FOV).
+        #
+        # 한때 시각 인식의 6 mm 를 1.5 배 넓혀 9 mm 로 썼다. 그것은 자리를 잘못 빌린 것이다 --
+        # 6 mm 는 LED·자국·띠를 켜는 **시각 판정**의 값이고, 읽어도 되는 자리를 정하는 값이
+        # 아니다. 실제 수집분은 횡이탈 35~38 mm 에서 읽혔고(HF 실측), 9 mm 게이트는 그것을
+        # 전부 기각한다. 두 값은 목적이 달라 하나로 겸할 수 없다.
+        self.lat_max = float(os.environ.get("TASKC_QR_LAT_MAX", "40"))
+        self.d_min = float(os.environ.get("TASKC_QR_DMIN_MM", "50"))
+        self.d_max = float(os.environ.get("TASKC_QR_DMAX_MM", "150"))
+        self.face_max = float(os.environ.get("TASKC_QR_FACE_MAX", "12"))
+        self.cone_half = float(os.environ.get("TASKC_QR_CONE_HALF", "18"))
         # 한 번 읽으면 이만큼 쉰다. 같은 상품을 연달아 읽어 로그가 넘치는 것을 막는다.
         self.cooldown = float(os.environ.get("TASKC_QR_COOLDOWN_S", cooldown_s or 5.0))
         # 판독 직전 RTX 를 수렴시키는 렌더 횟수. 적으면 얼룩진 그림을 읽는다.
@@ -51,6 +61,26 @@ class QrReader:
         self.events = []
         self._off_until = -1.0      # 이 시각까지는 끈다
         self._tries = 0
+
+    def in_window(self, b0, bd, tile_pos, tile_nrm):
+        """읽어도 되는 자리인가. `(들어왔나, 횡이탈mm, 축거리mm)`.
+
+        수집 파이프라인의 판독 수용 조건 넷을 그대로 본다 -- 빔 축에서의 횡이탈,
+        빔 출발선에서의 축거리, 타일 면이 빔을 마주 본 각, 그리고 스캐너 화각.
+        """
+        import math
+        import numpy as np
+        v = np.asarray(tile_pos, dtype=float) - np.asarray(b0, dtype=float)
+        d = np.asarray(bd, dtype=float)
+        al = float(v @ d)
+        lat = float(np.linalg.norm(v - d * al)) * 1000.0
+        dist = al * 1000.0
+        n = np.asarray(tile_nrm, dtype=float)
+        face = math.degrees(math.acos(max(-1.0, min(1.0, float(n @ (-d))))))
+        cone = math.degrees(math.atan2(lat, max(dist, 1e-6)))
+        ok = (lat <= self.lat_max and self.d_min <= dist <= self.d_max
+              and face <= self.face_max and cone <= self.cone_half)
+        return ok, lat, dist
 
     def _place(self, sim, b0, bd):
         import torch
@@ -91,4 +121,6 @@ class QrReader:
 
     def report(self):
         return {"decode": self.events, "tries": self._tries,
-                "gate_mul": self.gate_mul, "cooldown_s": self.cooldown}
+                "lat_max_mm": self.lat_max, "d_min_mm": self.d_min,
+                "d_max_mm": self.d_max, "face_max_deg": self.face_max,
+                "cone_half_deg": self.cone_half, "cooldown_s": self.cooldown}

@@ -97,11 +97,17 @@ def check_qr(sc, de):
         ck("판독은 그림으로: %s" % d.get("slug"), d.get("by") == "image",
            "by=%r -- 기하 판정이 점수로 새어 들어갔다" % (d.get("by"),))
         ck("읽힌 문자열이 있다: %s" % d.get("slug"), bool(d.get("text")))
-    # 예선 밖에서 셔터가 눌리지 않았는가. 예선 한계는 횡이탈 r_mm x 배율이다.
-    lim = float(os.environ.get("TASKC_RECOG_R_MM", "6")) * float(qr.get("gate_mul") or 1.5)
+    # 판독 창 밖에서 셔터가 눌리지 않았는가. 창은 수집 파이프라인 실측값이다.
+    lim = float(qr.get("lat_max_mm") or 40.0)
+    dlo = float(qr.get("d_min_mm") or 50.0)
+    dhi = float(qr.get("d_max_mm") or 150.0)
     for d in recs:
-        ck("예선 안에서 읽었다: %s" % d.get("slug"), float(d.get("lat_mm", 1e9)) <= lim + 1e-6,
-           "횡이탈 %.1fmm > 예선 %.1fmm" % (float(d.get("lat_mm", -1)), lim))
+        ck("판독 창 안에서 읽었다: %s" % d.get("slug"),
+           float(d.get("lat_mm", 1e9)) <= lim + 1e-6,
+           "횡이탈 %.1fmm > 창 %.1fmm" % (float(d.get("lat_mm", -1)), lim))
+        ck("판독 거리가 창 안이다: %s" % d.get("slug"),
+           dlo - 1e-6 <= float(d.get("dist_mm", -1)) <= dhi + 1e-6,
+           "축거리 %.0fmm 가 %.0f~%.0fmm 밖" % (float(d.get("dist_mm", -1)), dlo, dhi))
     # 냉각. 같은 상품을 냉각 시간 안에 두 번 읽었으면 점수가 부풀 여지가 생긴다.
     cd = float(qr.get("cooldown_s") or 5.0)
     by_slot = {}

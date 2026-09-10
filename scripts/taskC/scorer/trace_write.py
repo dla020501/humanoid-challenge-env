@@ -43,7 +43,7 @@ class TraceWriter:
         self._log = log or (lambda m: None)
         self._n = 0
         self.q_free_close = None   # 빈손 닫힘 위치 (재생기가 재서 넣는다)
-        self.qr = None             # 이미지 판독기 요약 (예선 배율·냉각·시도 횟수)
+        self.qr = None             # 이미지 판독기 요약 (판독 창·냉각·시도 횟수)
         # 채점기는 장면 파일에서 상판 높이와 띠를 잰다. 그대로 옆에 둔다.
         with open(os.path.join(out_dir, "scene.json"), "w", encoding="utf-8") as fh:
             json.dump(scene, fh, ensure_ascii=False)
