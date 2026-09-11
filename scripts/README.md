@@ -45,21 +45,21 @@ scripts/taskA/
 
 ```
 scripts/taskC/
-  taskC_products.py     상품 8종의 메타데이터 — 내부 코드명, 영문명, 형태(원통/상자), 에셋 경로
-  taskC_layout.py       환경 내 수치 데이터 — 계산대, 로봇 초기 자세, 빨간색 인식 띠, 스캐너 위치, 3캠 좌표
-  taskC_deal.py         seed 기반 상품 3종 선택 및 인식 띠 내 무작위 배치 로직 (QR 면은 -Y축 지향)
-  taskC_check.py        스폰된 상품의 규칙 준수 여부 검증 — 띠 내부 위치, 충돌, 넘어짐, QR 방향, 최소 간격
-  taskC_report.py       장면 구성 결과 요약 출력 및 --scene-json 파일 생성
-  taskC_counter.py      계산대 위 빨간 띠 시각화, 매장 내 기본 스캐너/바구니 비활성화, 계산대 하단 선반 제거 (Isaac 전용)
-  taskC_beam.py         빔 자국, 범위 인식, 계산대 띠 점등
-  taskC_scanner.py      스캐너 겉모습 — 도색, 초록 LED, 창의 빨간 점
-  taskC_lerobot.py      허깅페이스 LeRobot 데이터셋 재생용 변환 모듈
-  taskC_ffw_sg2.py      과제 C 로봇 설정 파일 (수집 당시의 강성·감쇠·그리퍼 마찰)
-  _qr_tiles.json        상품별 QR 타일의 중심·법선 (스캐너 조준 기준값)
-  samples/              테스트용 표본 장면 3개 (scene_0/1/2.json)
+  taskC_products.py     상품 8종의 메타데이터 — 내부 코드명, 영문명, 형태(원통/상자), 에셋 경로, 바코드
+  taskC_layout.py       장면의 고정 수치 — 계산대, 로봇 시작 자세, 상품 배치 구역, 스캐너 자리, 3캠 좌표
+  taskC_deal.py         seed 로 상품 3종과 배치를 정하는 로직 (QR 면은 로봇 기준 정 오른쪽 지향)
+  taskC_check.py        스폰 검증 — 배치 구역 안쪽, 상판 관통, 넘어짐, QR 방위 오차 3도, 상품 간격 10cm
+  taskC_report.py       장면 요약을 터미널에 찍고 --scene-json 파일로 저장
+  taskC_counter.py      배치 구역을 빨간 테이프로 그리고, 매장 기본 스캐너·바구니와 계산대 하단 선반 제거
+  taskC_beam.py         스캐너 빔이 상품 표면에 상으로 맺히는 현상 구현, 인식 범위 판정, 계산대 테두리 점등
+  taskC_scanner.py      스캐너 겉모습 — 도색, 초록 LED 점멸, 빔 창의 빨간 발광 점
+  taskC_lerobot.py      허깅페이스 학습 데이터 한 편을 재생기가 읽는 폴더 형태로 변환
+  taskC_ffw_sg2.py      과제 C 로봇 설정 — 수집 당시의 관절 강성·감쇠·그리퍼 마찰
+  _qr_tiles.json        상품별 QR 타일의 중심·법선 (스캐너를 어디로 겨눌지 정하는 기준값)
+  samples/              평가 표본 장면 3개 (scene_0/1/2.json) — seed 0·1·2 가 이 정착 상태를 그대로 읽음
   scenes/               장면 파일 960개 (허깅페이스 데이터셋의 각 에피소드에 대응)
-  demos_gt/             정답 시연 궤적 3편 — 연속 상품 3개 처리 (task_c_replay.py --set gt)
-  demos/                개별 상품 시연 궤적 4편 — 품목별 1개 처리 (task_c_replay.py --set single)
+  demos_gt/             정답 시연 궤적 3편 — 상품 3개를 연속 처리 (task_c_replay.py --set gt)
+  demos/                개별 상품 시연 궤적 4편 — 상품 1개만 처리 (task_c_replay.py --set single)
   scorer/               채점 모듈 — 상품 1개당 5개 항목 17점, 3개면 51점 만점
 ```
 
