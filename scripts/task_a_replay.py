@@ -291,6 +291,12 @@ def main():
     # ---------------------------------------------------------------- sim.reset() 앞에서만
     # 스테이지가 Fabric 으로 넘어가면 렌더러는 USD 에 적힌 변환을 더 이상 따르지 않는다.
     stage = omni.usd.get_context().get_stage()
+    # 조명은 매장 씬이 들고 온 것을 그대로 쓴다 (2026-09-12). 씬의 Dome 850 · Key 1500 ·
+    # 냉장고 RectLight 8개가 그대로 켜져 있고, 과제 B·C 도 그 조명으로 돈다. 돔이 둘이면
+    # 화면이 하얗게 뜨므로 끄는 쪽은 우리 돔이다.
+    ours = stage.GetPrimAtPath("/World/Light")
+    if ours and ours.IsValid():
+        ours.SetActive(False)
     # **`harden()` 앞이어야 한다** -- 진열을 걸면 곤돌라 프림의 참조가 통째로 갈리고,
     # harden 을 먼저 하면 콜라이더가 이미 없어진 프림에 붙는다.
     taskA_store_dress.dress(stage, STORE_SEED, log=lambda *a: print("[i]", *a, flush=True))
