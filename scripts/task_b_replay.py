@@ -229,15 +229,17 @@ class World(InteractiveSceneCfg):
     robot = FFW_SG2_MOBILE_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
     head_cam = CameraCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/ffw_sg2_follower/head_link2/head_cam",
+        prim_path="{ENV_REGEX_NS}/Robot/ffw_sg2_follower/head_link2/zed/cam_head",
         update_period=1.0e9, height=376, width=672, data_types=["rgb"],
         update_latest_camera_pose=True,
         # 데이터 수집이 쓴 값이다 (`meta.picture`: cam_focal 10.4 · cam_focus 200 ·
         # cam_clip 0.1,100.0). far clip 이 2 m 면 4 m 뒤의 냉장고·카운터가 안 그려진다.
+        # 붙는 자리도 수집기·과제 A 와 같다 -- 로봇 USD 의 head_link2/zed(ZED 자리)에 (0, 0.03, 0).
+        # 2026-09-11 까지는 head_link2/head_cam 에 (-0.03, 0.04, 0) 으로 8.8 cm 뒤에 있었다.
         spawn=sim_utils.PinholeCameraCfg(focal_length=10.4, focus_distance=200.0,
                                          horizontal_aperture=20.955,
                                          clipping_range=(0.1, 100.0)),
-        offset=CameraCfg.OffsetCfg(pos=(-0.03, 0.04, 0.0), rot=(0.5, 0.5, -0.5, -0.5),
+        offset=CameraCfg.OffsetCfg(pos=(0.0, 0.03, 0.0), rot=(0.5, 0.5, -0.5, -0.5),
                                    convention="isaac"))
     right_wrist_cam = CameraCfg(
         prim_path="{ENV_REGEX_NS}/Robot/ffw_sg2_follower/arm_r_link7"
