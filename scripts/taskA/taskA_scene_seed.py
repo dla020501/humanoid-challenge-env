@@ -2,11 +2,12 @@
 #
 # seed 하나가 장면 하나를 정하는 **규칙**. 여기 있는 것이 그 전부다.
 #
-# 한 장면에서 seed 가 정하는 것은 셋이다.
+# 한 장면에서 seed 가 정하는 것은 넷이다.
 #
 #   좌석        시식 탁상 3 개 x 4 등분 = 12 곳 중 하나. 로봇과 바구니가 여기서 출발한다
 #   매장씨앗    곤돌라 12 개와 냉장·냉동·주류 진열대에 **무엇이 서 있는지**
 #   진열대씨앗  목표 진열대에 무엇이 서 있고 앞줄 어느 칸이 비어 있는지
+#   바구니 옮김  좌석이 정한 바구니 자리에서 반경 20 mm 안으로 얼마나 옮기는지 (방향은 그대로)
 #
 # 평가표가 그렇게 정한다: *"진열대(목표 진열대 + 기타 진열대)에 진열되어 있는 상품은 랜덤
 # (진열대 자체의 배치는 달라지지 않음)"*. **자리는 안 바뀌고 물건만 바뀐다** -- 그래서
@@ -31,6 +32,9 @@
 #
 #       store_seed = int(md5("taskA-eval-store|<seed>")[:8], 16) % 999999 + 1
 #       shelf_seed = int(md5("taskA-eval-shelf|<seed>")[:8], 16) % 999999 + 1
+#       u_r        = int(md5("taskA-eval-crate_r|<seed>")[:8], 16) / 2**32      0 이상 1 미만
+#       u_th       = int(md5("taskA-eval-crate_th|<seed>")[:8], 16) / 2**32
+#       바구니 옮김 = 크기 0.020 * u_r, 방향 2 pi * u_th                        (m, 월드 x·y)
 #
 # 이 파일은 대회 환경 저장소 `Task-A/eval_kit/scene_seed.py` 에서 **참가자 환경이 쓰는
 # 부분만** 옮긴 것이다. 옮기지 않은 것을 여기 적어 둔다 -- 정답 주행을 만들 때 어느 파지를
@@ -46,10 +50,34 @@
 
 import hashlib
 import json
+import math
 
 # `task_a_demo.py:179` 의 사상. 숫자를 바꾸면 정답 주행과 어긋난다.
 SEAT_STRIDE = 7919
 N_SEATS = 12
+
+# 바구니를 좌석이 정한 자리에서 옮기는 반경의 상한.
+#
+# 20 mm 인 이유는 **탁상 끝까지의 여유**다. 바구니(0.380 x 0.590)는 탁상 중심에서 좌석 쪽으로
+# 0.20 m 치우쳐 놓여 있어서, 기본 자리에서도 가장 먼 모서리가 탁상 끝(반지름 0.5242)까지
+# 35.2 mm 밖에 안 남는다. 20 mm 를 어느 방향으로 밀어도 최악 15.2 mm 가 남는다 (12 좌석 x
+# 0.1 도 간격 3600 방향, 2026-09-11). `task_a_demo.py --check` 가 이 여유를 매번 다시 잰다.
+#
+# **방향은 안 돌린다** (사용자 결정 2026-09-11). 돌리면 모서리가 더 멀리 나가서, 20 mm 에서는
+# 7.6 도만 돌려도 여유가 거의 없어진다.
+#
+# **옮기는 크기를 0 ~ 20 mm 에서 고르게 뽑는다** (사용자 결정 2026-09-11: "쏠림폭이 크면 안
+# 돼. 균등한 분포로"). 주최 측 수집기(`Task-A/automation/collector/run_scene_jitter.py`,
+# `CRATE_SHIFT_M`)는 원 **넓이**에 고르게(크기 = 상한 x sqrt(u)) 뽑았는데, 원은 바깥 고리가
+# 넓어서 그러면 큰 쪽으로 쏠린다. seed 10 만 개로 세면:
+#
+#                        0~5 mm   5~10 mm   10~15 mm   15~20 mm   가운데 값
+#     넓이에 고르게       6 %      19 %      31 %       44 %      14.2 mm
+#     크기를 고르게      25 %      25 %      25 %       25 %      10.0 mm   <- 이것
+#
+# 수집기는 로봇을 같이 옮겨 로봇과 바구니 사이를 그대로 두었지만, 여기서는 로봇 자리가 좌석마다
+# 고정이라 바구니가 **로봇에 대해서도** 옮겨진다.
+CRATE_SHIFT_M = 0.020
 
 
 def _md5(s):
@@ -64,9 +92,29 @@ def _draw(seed, what):
     return int(_md5("taskA-eval-%s|%d" % (what, seed))[:8], 16) % 999999 + 1
 
 
+def _unit(seed, what):
+    """0 이상 1 미만의 수 하나. `_draw()` 와 같은 md5 방식."""
+    return int(_md5("taskA-eval-%s|%d" % (what, seed))[:8], 16) / float(1 << 32)
+
+
 def seat_of(seed):
     """이 seed 의 좌석 번호 (0~11)."""
     return (int(seed) * SEAT_STRIDE) % N_SEATS
+
+
+def crate_shift(seed):
+    """이 seed 의 바구니 옮김 (dx, dy), 월드 좌표 미터.
+
+    옮기는 **크기**는 0 ~ `CRATE_SHIFT_M` 에서 고르게, 방향은 한 바퀴에서 고르게 뽑는다.
+
+    **크기에 sqrt 를 씌우지 않는다.** 씌우면 원 넓이에 고르게 되어 큰 쪽으로 쏠린다 (15~20 mm 가
+    44 %, 위 `CRATE_SHIFT_M` 머리말의 표). 원하는 것은 조금 옮기는 장면과 많이 옮기는 장면이 같은
+    비율로 나오는 것이다.
+    """
+    seed = int(seed)
+    r = CRATE_SHIFT_M * _unit(seed, "crate_r")
+    th = 2.0 * math.pi * _unit(seed, "crate_th")
+    return (float(r * math.cos(th)), float(r * math.sin(th)))
 
 
 def spec(seed):
@@ -79,8 +127,11 @@ def spec(seed):
         "seat": seat_of(seed),
         "store_seed": _draw(seed, "store"),      # 기타 진열대
         "shelf_seed": _draw(seed, "shelf"),      # 목표 진열대
+        "crate_shift_m": crate_shift(seed),      # 바구니 옮김 (dx, dy)
         "rule": ("seat=(seed*%d)%%%d, "
-                 "store/shelf_seed=md5 추첨" % (SEAT_STRIDE, N_SEATS)),
+                 "store/shelf_seed=md5 추첨, "
+                 "crate_shift=md5 추첨 반경 %.0f mm 안" % (SEAT_STRIDE, N_SEATS,
+                                                       CRATE_SHIFT_M * 1000.0)),
     }
 
 
@@ -97,10 +148,12 @@ def main():
     if a.json:
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return
-    print("seed        좌석   매장씨앗   진열대씨앗")
+    print("seed        좌석   매장씨앗   진열대씨앗   바구니 옮김 (mm)")
     for s in out:
-        print("%-10d  %2d   %8d   %8d"
-              % (s["seed"], s["seat"], s["store_seed"], s["shelf_seed"]))
+        dx, dy = s["crate_shift_m"]
+        print("%-10d  %2d   %8d   %8d     (%+6.1f, %+6.1f) = %4.1f"
+              % (s["seed"], s["seat"], s["store_seed"], s["shelf_seed"],
+                 dx * 1000.0, dy * 1000.0, math.hypot(dx, dy) * 1000.0))
 
 
 if __name__ == "__main__":
