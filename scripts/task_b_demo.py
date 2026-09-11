@@ -96,6 +96,10 @@ taskB_shelf = _by_path("taskB_shelf", f"{_SRC}/assets/object/taskB_shelf.py")
 taskB_restock = _by_path("taskB_restock", f"{_SRC}/assets/object/taskB_restock.py")
 taskB_table = _by_path("taskB_table", f"{_SRC}/assets/object/taskB_table.py")
 taskB_labels = _by_path("taskB_labels", f"{_SRC}/assets/object/taskB_labels.py")
+# 매장 씬. 과제 A 가 쓰는 그 파일이다 (`scripts/taskA/taskA_layout.py` 의 STORE_USD).
+# 과제 B 수집도 이 씬 안에서 돌았으므로(2026-08-21~, `meta.store_scene`), 데모도 같은
+# 배경이어야 학습 데이터와 같은 그림이 나온다.
+taskA_layout = _by_path("taskA_layout", f"{os.path.dirname(os.path.abspath(__file__))}/taskA/taskA_layout.py")
 
 # 진열대 앞면이 서는 x, 물리 한 걸음, 그리고 에피소드가 시작하는 몸통 높이·고개 각도.
 # 모두 수집 코드가 쓰는 값 그대로다.
@@ -250,9 +254,11 @@ class World(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Robot/ffw_sg2_follower/head_link2/head_cam",
         update_period=1.0e9, height=376, width=672, data_types=["rgb"],
         update_latest_camera_pose=True,
-        spawn=sim_utils.PinholeCameraCfg(focal_length=12.0, focus_distance=400.0,
+        # 데이터 수집이 쓴 값이다 (`meta.picture`: cam_focal 10.4 · cam_focus 200 ·
+        # cam_clip 0.1,100.0). far clip 이 2 m 면 4 m 뒤의 냉장고·카운터가 안 그려진다.
+        spawn=sim_utils.PinholeCameraCfg(focal_length=10.4, focus_distance=200.0,
                                          horizontal_aperture=20.955,
-                                         clipping_range=(0.1, 2.0)),
+                                         clipping_range=(0.1, 100.0)),
         offset=CameraCfg.OffsetCfg(pos=(-0.03, 0.04, 0.0), rot=(0.5, 0.5, -0.5, -0.5),
                                    convention="isaac"))
     left_wrist_cam = CameraCfg(
@@ -260,6 +266,8 @@ class World(InteractiveSceneCfg):
                   "/camera_l_bottom_screw_frame/camera_l_link/left_wrist_cam",
         update_period=1.0e9, height=240, width=424, data_types=["rgb"],
         update_latest_camera_pose=True,
+        # 실기 D405 의 기본 프로파일이다 (taskb_unified_env_cfg.py:146 "the D405's own
+        # default profile").
         spawn=sim_utils.PinholeCameraCfg(focal_length=18.0, focus_distance=400.0,
                                          horizontal_aperture=20.955,
                                          clipping_range=(0.1, 2.0)),
@@ -270,6 +278,8 @@ class World(InteractiveSceneCfg):
                   "/camera_r_bottom_screw_frame/camera_r_link/right_wrist_cam",
         update_period=1.0e9, height=240, width=424, data_types=["rgb"],
         update_latest_camera_pose=True,
+        # 실기 D405 의 기본 프로파일이다 (taskb_unified_env_cfg.py:146 "the D405's own
+        # default profile").
         spawn=sim_utils.PinholeCameraCfg(focal_length=18.0, focus_distance=400.0,
                                          horizontal_aperture=20.955,
                                          clipping_range=(0.1, 2.0)),
@@ -278,6 +288,15 @@ class World(InteractiveSceneCfg):
 
     def __post_init__(self):
         self.shelf = taskB_shelf.taskB_shelf_cfg(FRONT_X)
+        # 매장이 우리에게 온다, 우리가 매장으로 가지 않는다. 씬의 제 과제 B 진열대 자리
+        # (Fix_shelf_taskB: 앞면 x 0.9134 · 중심 y 2.60)가 우리 진열대(앞면 FRONT_X ·
+        # 중심 y 0)에 정확히 겹치도록 씬을 옮긴다. 이 파일이 이미 들고 있는 숫자 --
+        # 시작 자세, 상품 자리 -- 가 전부 그대로 유효하다. 수집기(task_b_episode.py:1568)와
+        # 같은 값이다.
+        self.store_bg = AssetBaseCfg(
+            prim_path="{ENV_REGEX_NS}/StoreBg",
+            spawn=sim_utils.UsdFileCfg(usd_path=taskA_layout.STORE_USD),
+            init_state=AssetBaseCfg.InitialStateCfg(pos=(FRONT_X - 0.9134, -2.60, 0.0)))
         # 책상은 kinematic -- 과제 B 에서 로봇이 책상을 건드릴 일이 없고, 상자가 흔들리면
         # 상자 속 상품 좌표가 장면 기록과 어긋난다.
         tpos, trot = SCENE["table_pose"]
@@ -303,10 +322,49 @@ class World(InteractiveSceneCfg):
                     convstore_store.product_cfg(f"CrateItem{i}", name, pos, rot))
 
 
+def _store_scene_fixups():
+    """매장 씬을 깔았으니 셋을 손본다. 수집기(task_b_episode.py:1727)와 같은 순서다.
+
+    ① 씬의 제 과제 B 진열대(`Fix_shelf_taskB`)를 끈다 -- 그 자리는 우리 진열대가 차지한다.
+       프림을 비활성화하면 렌더·물리·충돌 모두에서 빠진다.
+    ② 씬이 들고 온 전역 조명 둘(Dome 850 · Key 1500)을 끈다 -- 우리 돔이 그 위에 또 켜지면
+       돔이 둘이라 화면이 하얗게 뜬다. 냉장고 안 RectLight 들은 실제 매장처럼 보이는 국소
+       조명이라 그대로 둔다.
+    ③ 우리 격자 바닥판은 **가시성만** 끈다. 씬의 바닥(/World/Floor)은 충돌체가 없는 그림용
+       메쉬라서 우리 판을 빼면 로봇과 책상이 뚫고 떨어진다. SetActive 는 물리까지 없애므로
+       쓰면 안 된다.
+    """
+    import omni.usd as _ou
+    from pxr import UsdGeom as _UG
+    stage = _ou.get_context().get_stage()
+
+    fix = stage.GetPrimAtPath("/World/envs/env_0/StoreBg/Fix_shelf_taskB")
+    if not (fix and fix.IsValid()):
+        # 정지이지 경고가 아니다. 이 프림은 매장 씬에 늘 들어 있으므로, 없다는 것은 씬이
+        # 참조하는 조각 파일이 안 열린 것이다 -- 그때 물리는 멀쩡하고 데모는 잘 도는데
+        # 그림에는 배경이 통째로 없다.
+        raise SystemExit(
+            "[씬 단계에서 에러 발생] 사유: 매장 씬의 Fix_shelf_taskB 가 StoreBg 아래에 "
+            f"없습니다. 씬이 참조하는 조각 파일이 안 열린 것입니다:\n  {taskA_layout.STORE_USD}")
+    fix.SetActive(False)
+    print("[B] 매장   Fix_shelf_taskB 를 껐다 -- 그 자리에 우리 진열대가 선다")
+
+    for name in ("Dome", "Key"):
+        lp = stage.GetPrimAtPath(f"/World/envs/env_0/StoreBg/{name}")
+        if lp and lp.IsValid():
+            lp.SetActive(False)
+    print("[B] 매장   씬의 전역 조명(Dome·Key)을 껐다 -- 우리 돔만 쓴다")
+
+    g = stage.GetPrimAtPath("/World/ground")
+    if g and g.IsValid():
+        _UG.Imageable(g).MakeInvisible()
+
+
 def main():
     sim = sim_utils.SimulationContext(
         sim_utils.SimulationCfg(dt=PHYSICS_DT, device=args_cli.device))
     scene = InteractiveScene(World(num_envs=1, env_spacing=8.0))
+    _store_scene_fixups()
     sim.reset()
 
     robot = scene["robot"]
