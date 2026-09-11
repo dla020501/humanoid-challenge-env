@@ -503,20 +503,20 @@ class World(InteractiveSceneCfg):
                                          clipping_range=(0.1, 100.0)),
         offset=CameraCfg.OffsetCfg(pos=(0.0, 0.03, 0.0), rot=(0.5, 0.5, -0.5, -0.5),
                                    convention="isaac"))
-    cam_left_wrist = CameraCfg(
+    left_wrist_cam = CameraCfg(
         prim_path="{ENV_REGEX_NS}/Robot/ffw_sg2_follower/arm_l_link7"
-                  "/camera_l_bottom_screw_frame/camera_l_link/cam_left_wrist",
-        update_period=1.0e9, height=244, width=244, data_types=["rgb"],
+                  "/camera_l_bottom_screw_frame/camera_l_link/left_wrist_cam",
+        update_period=1.0e9, height=240, width=424, data_types=["rgb"],
         update_latest_camera_pose=True,
         spawn=sim_utils.PinholeCameraCfg(focal_length=18.0, focus_distance=400.0,
                                          horizontal_aperture=20.955,
                                          clipping_range=(0.1, 2.0)),
         offset=CameraCfg.OffsetCfg(pos=(-0.08, 0.0, 0.0), rot=(0.5, -0.5, -0.5, 0.5),
                                    convention="isaac"))
-    cam_right_wrist = CameraCfg(
+    right_wrist_cam = CameraCfg(
         prim_path="{ENV_REGEX_NS}/Robot/ffw_sg2_follower/arm_r_link7"
-                  "/camera_r_bottom_screw_frame/camera_r_link/cam_right_wrist",
-        update_period=1.0e9, height=244, width=244, data_types=["rgb"],
+                  "/camera_r_bottom_screw_frame/camera_r_link/right_wrist_cam",
+        update_period=1.0e9, height=240, width=424, data_types=["rgb"],
         update_latest_camera_pose=True,
         spawn=sim_utils.PinholeCameraCfg(focal_length=18.0, focus_distance=400.0,
                                          horizontal_aperture=20.955,
