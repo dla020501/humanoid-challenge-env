@@ -357,8 +357,12 @@ class Recognizer:
         # 한때 15 mm 로 넓혀 두었다. 팔이 GT 보다 처져 상품이 그리퍼 안에서 다른 자세로
         # 물리는 바람에 6 mm 로는 발화가 4 회에서 2 회로 줄었기 때문이다. 그 처짐은 팔 강성
         # 이중 계상이 뿌리였고(재생기 31절), 잡고 나서는 넓힐 까닭이 없어 되돌렸다.
-        # 넓히는 것은 증상 덮기이지 수집과 같은 판정이 아니다.
-        self._r_mm = float(os.environ.get("TASKC_RECOG_R_MM", "6"))
+        #
+        # 2026-09-11: 6 mm 를 **판독 창과 같은 40 mm** 로 맞춘다(사용자 지시). 두 잣대가
+        # 어긋나 있어서, 판독이 성립한 판에서도 띠가 회색으로 남았다. 밀 실측 세 판의
+        # 횡이탈이 11.0 · 13.1 · 24.4 mm 로 판독 창(40 mm) 안이면서 시각 문턱(6 mm) 밖이었다.
+        # 학습 데이터에 "읽혔는데 띠가 안 켜진 장면" 이 남는 것을 막는다.
+        self._r_mm = float(os.environ.get("TASKC_RECOG_R_MM", "40"))
         self._d_min = float(os.environ.get("TASKC_RECOG_D_MIN_MM", "50"))
         self._d_max = float(os.environ.get("TASKC_RECOG_D_MAX_MM", "250"))
         self._face = float(os.environ.get("TASKC_RECOG_FACE", "0.5"))
