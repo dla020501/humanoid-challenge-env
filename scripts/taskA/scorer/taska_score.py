@@ -39,18 +39,33 @@ import numpy as np
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 
+import log_check as LC            # noqa: E402
 import rubric_taskA as R          # noqa: E402
 import score_from_log as SFL      # noqa: E402
 
 THRESHOLD_KEYS = ("LIFT_OK_MM", "ARRIVE_ZONE_M", "STOP_MM_S", "CONTACT_N",
-                  "SEAT_ON_MAX_MM", "OVERHANG_OK_MM", "TILT_OK_DEG",
+                  "SEAT_ON_MAX_MM", "SEAT_SINK_MAX_MM", "SEAT_NEAR_MM",
+                  "OVERHANG_OK_MM", "TILT_OK_DEG",
                   "WATCH_S", "WATCH_TAIL_S", "DESK_OK_MM", "TIME_LIMIT_S")
 
 
 def load(path):
-    """시연 파일 하나 -> (meta, 토막별 (머리말, 배열사전)).
+    """시연 파일 하나 -> (meta, 머리말, 배열사전).  **한 시도는 하나의 타임라인이다.**
 
-    토막은 `segment` 열이 가른다. 세 토막이 이어 붙어 있고 순서는 집기·주행·놓기다.
+    파일 안에서는 집기·주행·놓기가 토막으로 나뉘어 있고 **토막마다 시계가 0 부터 다시
+    시작한다** (조각마다 따로 찍었기 때문이다).  여기서 누적 오프셋을 더해 한 줄로 잇는다.
+
+    왜 이어 붙이나 -- 실측 2026-09-08
+      예전에는 토막마다 따로 재고 나중에 합쳤는데, **무엇을 잴지를 토막 이름이 정했다**
+      (`score_from_log.py` 의 `if seg == "pick"` 따위).  그래서 이름을 지우거나 바꾸면
+      항목이 통째로 안 재지고, 안 잰 항목은 분모에서 빠져 **비율이 100 % 가 됐다**:
+
+          토막 이름을 지운다        4 / 4   = 100 %
+          전부 'place' 라고 한다   18 / 18  = 100 %
+          집기만 내고 끝            7 / 7   = 100 %
+
+      한 시도를 한 타임라인으로 보면 이름이 판정에 끼어들 자리가 없다.  평가받는 쪽이
+      만든 이름표가 채점 범위를 정해서는 안 된다.
     """
     z = np.load(path, allow_pickle=False)
     meta = json.loads(str(z["meta"]))
@@ -64,15 +79,37 @@ def load(path):
     cols = {f: np.asarray(z["score/" + f]) for f in fields}
     z.close()
 
-    parts = []
+    order, kin, hit_any = [], True, False
     for i, name in enumerate(names):
-        m = seg == i
-        n = int(m.sum())
-        if n == 0:
+        m = np.flatnonzero(seg == i)
+        if m.size == 0:
             continue
-        head = dict(meta["scoring"]["segments"][name])
-        parts.append((head, {f: cols[f][m] for f in fields}))
-    return meta, parts
+        order.append((name, m))
+        h = meta["scoring"]["segments"].get(name) or {}
+        kin = kin and bool(h.get("kinematic"))
+        hit_any = hit_any or bool((h.get("hit") or {}).get("hit"))
+    if not order:
+        raise SystemExit("이 파일에는 프레임이 하나도 없다: %s" % os.path.basename(path))
+
+    out, offset = {f: [] for f in fields}, 0.0
+    for name, m in order:
+        t = np.asarray(cols["t"][m], dtype=np.float64)
+        for f in fields:
+            v = cols[f][m]
+            out[f].append((t - t[0] + offset) if f == "t" else v)
+        # 다음 토막은 이 토막이 끝난 **한 프레임 뒤**에 시작한다.  간격은 이 토막의
+        # 중앙값을 쓴다 -- 마지막 두 프레임 차이를 쓰면 그 하나가 튀었을 때 시계가 튄다.
+        dt = float(np.median(np.diff(t))) if t.size > 1 else 0.1
+        offset += float(t[-1] - t[0]) + dt
+
+    arrays = {f: np.concatenate(v, axis=0) for f, v in out.items()}
+    head = {"segment": "attempt", "frames": int(len(arrays["t"])),
+            "kinematic": kin,
+            # 충돌은 4 층에서 배열로 다시 판정하므로 여기 값은 「무엇에 부딪혔나」에만
+            # 쓰인다.  그래도 어느 토막에서든 부딪혔으면 참으로 남긴다.
+            "hit": {"hit": hit_any},
+            "segments": [name for name, _m in order]}
+    return meta, head, arrays
 
 
 def scene_of(meta):
@@ -83,27 +120,40 @@ def scene_of(meta):
             "desk": sc["desk"], "goal": sc["goal"]}
 
 
+class Unscorable(SystemExit):
+    """이 로그로는 채점할 수 없다.  0 점과 다르다 -- 아래 `score_one` 의 주석 참조."""
+
+
 def score_one(path, quiet=False):
-    meta, parts = load(path)
+    meta, head, arrays = load(path)
     scene = scene_of(meta)
     th = {k: getattr(R, k) for k in THRESHOLD_KEYS}
-    measured = [SFL.measure_one(h, a, scene, th) for h, a in parts]
-    m = SFL.merge(measured)
+
+    # **채점하기 전에 로그가 채점할 만한 물건인지 본다.**
+    #
+    # 점수를 0 으로 매기지 않고 아예 안 내는 이유: 로그가 깨진 것과 로봇이 못한 것은
+    # 다른 일이다.  하네스나 시뮬레이터가 튀어 깨졌을 수도 있고, 그때 0 점을 주면
+    # 참가자가 억울하다.  채점기는 「채점할 수 없다 + 왜」까지만 말하고 판단은 사람이 한다.
+    probs = LC.problems(arrays, head, scene)
+    if probs:
+        print(LC.report(probs, os.path.basename(path)))
+        raise Unscorable(2)
+
+    measured = SFL.measure_one(head, arrays, scene, th)
+    m = SFL.merge([measured])
     result = R.score(m)
 
     if not quiet:
         print("\n[채점] %s  --  seed %d, 좌석 %d, %d 프레임 (%.1f 초)"
               % (os.path.basename(path), meta["seed"], meta["seat"],
                  meta["frames"], meta["frames"] / meta["fps"]))
-        print("       토막 %s"
-              % ", ".join("%s(%d)" % (p["segment"], p["frames"]) for p in measured))
+        print("       한 판으로 이어 붙임: %s" % ", ".join(head.get("segments") or ["?"]))
         print()
         print(R.render(result))
-        for p in measured:
-            for note in p.get("notes", []):
-                print("  * %s: %s" % (p["segment"], note))
+        for note in measured.get("notes", []):
+            print("  * %s" % note)
     return {"file": os.path.basename(path), "seed": meta["seed"], "seat": meta["seat"],
-            "measured": m, "per_segment": measured, "score": result}
+            "measured": m, "per_segment": [measured], "score": result}
 
 
 def main():

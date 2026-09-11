@@ -27,18 +27,33 @@ def _strips(x0, x1, y0, y1, w):
     """사각형 테두리를 테이프 폭 w 의 막대 넷으로. (cx, cy, lx, ly) 세계 좌표."""
     cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
     lx, ly = (x1 - x0), (y1 - y0)
+    # 막대 넷 중 **로봇 좌표의 y 끝(= 세계 x 끝)에 놓이는 둘만 테이프 폭의 두 배만큼 짧다.**
+    # 수집 파이프라인 `kit_config.tape_strips` 가 그렇게 놓는다 (같은 파일 444~457):
+    #
+    #     (x0 + w/2, cy, w, sy)          near side  -- 전체 길이
+    #     (x1 - w/2, cy, w, sy)          far side   -- 전체 길이
+    #     (cx, y0 + w/2, sx - 2*w, w)    right side -- 2*w 짧다
+    #     (cx, y1 - w/2, sx - 2*w, w)    left side  -- 2*w 짧다
+    #
+    # 넷 다 전체 길이로 놓으면 네 모서리에서 막대가 두 겹으로 겹쳐, 그 자리만 두껍고 밝게
+    # 보인다. 여기 좌표는 세계 축이고 로봇이 요 90 도로 서 있으므로 로봇 x <-> 세계 y 다.
     return [
-        (cx, y0 + w / 2.0, lx, w),          # 아래
-        (cx, y1 - w / 2.0, lx, w),          # 위
-        (x0 + w / 2.0, cy, w, ly),          # 왼쪽
-        (x1 - w / 2.0, cy, w, ly),          # 오른쪽
+        (cx, y0 + w / 2.0, lx, w),                  # 세계 y0 (로봇 x 끝) -- 전체 길이
+        (cx, y1 - w / 2.0, lx, w),                  # 세계 y1 (로봇 x 끝) -- 전체 길이
+        (x0 + w / 2.0, cy, w, ly - 2.0 * w),        # 세계 x0 (로봇 y 끝) -- 2*w 짧다
+        (x1 - w / 2.0, cy, w, ly - 2.0 * w),        # 세계 x1 (로봇 y 끝) -- 2*w 짧다
     ]
 
 
 def band_world_rect():
-    """로봇 좌표의 띠 [x0,x1]x[y0,y1] 를 세계 좌표 축정렬 사각형 (x0, x1, y0, y1) 으로."""
-    a = L.robot_to_world((L.BAND["x0"], L.BAND["y0"]))
-    b = L.robot_to_world((L.BAND["x1"], L.BAND["y1"]))
+    """로봇 좌표의 띠 [x0,x1]x[y0,y1] 를 세계 좌표 축정렬 사각형 (x0, x1, y0, y1) 으로.
+
+    로봇을 `L.BASE_BACK` 만큼 뒤로 물렸으므로, 띠를 로봇 좌표 그대로 그리면 계산대 위에서도
+    같은 만큼 따라 밀린다. 띠는 계산대에 붙은 표시이지 로봇에 붙은 것이 아니므로 그만큼 앞으로
+    되돌려, 계산대 기준 자리를 학습 데이터와 같게 둔다 (로봇 +x 가 계산대 쪽).
+    """
+    a = L.scene_to_world((L.BAND["x0"], L.BAND["y0"]))
+    b = L.scene_to_world((L.BAND["x1"], L.BAND["y1"]))
     return (min(a[0], b[0]), max(a[0], b[0]), min(a[1], b[1]), max(a[1], b[1]))
 
 
@@ -53,6 +68,46 @@ def draw_band(env_prim="/World/envs/env_0", name="band", z_lift=0.0006, log=prin
                  translation=(float(cx), float(cy), float(L.COUNTER_TOP_Z + L.TAPE_T / 2.0 + z_lift)))
     log(f"[TAPE] {name}  세계 x[{x0:.3f},{x1:.3f}]  y[{y0:.3f},{y1:.3f}]  "
         f"{(x1 - x0) * 100:.0f}(x) x {(y1 - y0) * 100:.0f}(y) cm, 테이프 {L.TAPE_W * 1000:.0f} mm")
+
+
+def bind_band_idle(stage, env_prim="/World/envs/env_0", name="band",
+                   rgb=(0.3, 0.3, 0.3), intensity=0.0, log=print):
+    """띠 네 막대에 **회색 발광 재질**을 입힌다. 수집 파이프라인 v5-3d 그대로다.
+
+    그쪽은 띠를 빨강(0.80, 0.03, 0.03)으로 그린 **직후** 이 재질을 덮어씌운다 -- 주석 그대로
+    "인식 전 초반 빨강 방지". 그래서 학습 데이터의 띠는 평소 **회색**이고, 상품을 읽는 순간에만
+    6 초 빨강으로 바뀐다(v5-3c). 이 단계가 없으면 띠가 처음부터 끝까지 빨갛게 남는다.
+
+    `sim.reset()` 과 `draw_band` 뒤에 부른다 (막대 프림이 있어야 바인딩된다).
+
+    바인딩된 셰이더를 돌려준다 -- 인식 순간 빨강으로 바꾸는 쪽(`taskC_beam.BandLight`)이
+    이걸 받아 색만 갈아 끼운다. 하나도 못 붙였으면 `None` 이다.
+    """
+    from pxr import UsdShade, Sdf, Gf
+    mat = UsdShade.Material.Define(stage, "/World/Looks/BandIdle")
+    shd = UsdShade.Shader.Define(stage, "/World/Looks/BandIdle/Shader")
+    shd.CreateImplementationSourceAttr(UsdShade.Tokens.sourceAsset)
+    shd.SetSourceAsset(Sdf.AssetPath("OmniPBR.mdl"), "mdl")
+    shd.SetSourceAssetSubIdentifier("OmniPBR", "mdl")
+    shd.CreateInput("diffuse_color_constant", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*rgb))
+    shd.CreateInput("reflection_roughness_constant", Sdf.ValueTypeNames.Float).Set(0.9)
+    shd.CreateInput("metallic_constant", Sdf.ValueTypeNames.Float).Set(0.0)
+    shd.CreateInput("enable_emission", Sdf.ValueTypeNames.Bool).Set(True)
+    shd.CreateInput("emissive_color", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*rgb))
+    shd.CreateInput("emissive_intensity", Sdf.ValueTypeNames.Float).Set(float(intensity))
+    for out in ("mdl",):
+        mat.CreateSurfaceOutput(out).ConnectToSource(shd.ConnectableAPI(), "out")
+        mat.CreateDisplacementOutput(out).ConnectToSource(shd.ConnectableAPI(), "out")
+        mat.CreateVolumeOutput(out).ConnectToSource(shd.ConnectableAPI(), "out")
+    n = 0
+    for k in range(4):
+        prim = stage.GetPrimAtPath(f"{env_prim}/Tape_{name}_{k}")
+        if prim and prim.IsValid():
+            UsdShade.MaterialBindingAPI.Apply(prim).Bind(
+                mat, UsdShade.Tokens.strongerThanDescendants)
+            n += 1
+    log(f"[TAPE] 띠 평소 재질 {n}/4 (회색 {rgb} 발광 {intensity:.0f})")
+    return shd if n else None
 
 
 def deactivate_duplicates(stage, store_prim="/World/envs/env_0/Store", log=print):

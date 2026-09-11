@@ -2,10 +2,15 @@
 #
 # 과제 B 궤적 채점기 -- `평가표.xlsx` 의 Task-B 시트를 그대로 코드로 옮긴 것.
 #
-# 상품 하나에 15항목 30점이다. 판정은 시트가 정한 두 가지뿐이다:
+# 상품 하나에 15항목 TOTAL 점이다 (2026-09-07 시트: B12 4점 · B16 4점으로 올라 34점). 판정은 시트가 정한 두 가지뿐이다:
 #
 #   [한 번이라도]  판이 도는 내내 보고, 한 번이라도 참이면 점수. 뒤에 무슨 일이 생겨도 뺏지 않는다.
 #   [그 시점에]    채점 종료의 한 순간에 한 번만 보고 판정한다.
+#
+# [그 시점에] 인 것 중 **B12~B18 과 B20** 은 상품을 선반에 내려놓았을 때만 점수가 된다 (사용자
+# 2026-09-09). 든 채 끝났거나 바닥에 떨어뜨렸으면 0이다 -- 진열을 마치지 못한 판이라 볼 것이 없다.
+# **B19(파란 상자)만 예외로 그대로 둔다** -- 상자는 진열을 마쳤든 아니든 탁자 위에 있어야 하고,
+# 사용자가 09-09 에 바꾸라고 한 것은 B12 와 B20 둘이다.
 #
 # 감점 항목은 없다. 문턱값과 무엇을 재는지는 시트의 H열("simulation 평가 로직 구현 관련")에서
 # 왔고, 아래 THRESHOLD 에 한 곳으로 모았다. 시트가 「아직 안 잰 값」이라 표시한 다섯
@@ -15,24 +20,31 @@
 #
 #   score_npz(path)      state npz(task_b_episode.py 가 쓰는 것, humanoid-challenge-env 의
 #                        taskB/demos/demo_*.npz 도 같은 형식)를 읽어 프레임을 먹인다. 접촉력은 없지만
-#                        B6 는 상품이 상자 안에서 움직였는가(또는 들렸는가)로 재서 30점 만점이다.
+#                        B6 는 상품이 상자 안에서 움직였는가(또는 들렸는가)로 재서 TOTAL 점 만점이다.
 #   ProductScorer 직접   판이 도는 중에 프레임마다 .update() 를 부르고, 놓은 뒤 3초에 .finish().
 #                        접촉 센서 값(contact_N)을 주면 B6 는 그것으로도 참이 된다.
 #
 # 채점 종료는 시트대로 둘뿐이다. 둘 다 채점기가 스스로 찾는다:
 #   놓은 뒤 3초   잡고 있던 손의 gripper 가 열리는 프레임 + 3초 (score_npz 가 관절 기록에서 찾는다)
-#   떨어짐        상자 밖으로 나온 뒤 어느 판에도 안 놓인 채 테두리 아래에서 3초 멈춰 있는 순간. 그 뒤는 안 본다
+#   떨어짐        상자 밖으로 나온 뒤 어느 판에도 안 놓인 채 바닥에 밑면이 닿은 그 순간. 그 뒤는 안 본다
+#
+# 그리고 시트 [심사 유의사항]의 조합 중단 하나 -- 그 순간까지의 점수가 최종 점수다:
+#   상자가 탁자에서 떨어짐   상자 중심이 탁자 윗면 아래로 내려간 프레임 (crate_off_table)
+#   ~~탁자가 10 cm 넘게 움직임~~ 은 채점 기준에서 뺐다 (사용자 2026-09-07)
 #
 # 시트와 다르게 둔 것 셋 -- 전부 사용자 결정 2026-09-03, THRESHOLD 옆에 적혀 있다:
-#   B15 서 있는가   진열 자세 15° 가 아니라 뒷줄 같은 상품의 z 축과 같은 쪽(< 90°)
-#   B16 방향        45° 가 아니라 뒷줄 같은 상품 기준 ±90°
+#   B15 뒷줄 상품과 위아래가 같은가   진열 자세 15° 가 아니라 뒷줄 같은 상품의 z 축과 같은 쪽
+#                 (< 45°, ~~90°~~ 사용자 2026-09-07). 항목 이름은 ~~서 있는가~~ 였다 -- 그 이름은
+#                 **거꾸로 선 것**(위아래만 뒤집혀 그대로 서 있는 상자, 실측 538판)이 0점인 것을
+#                 안 담아서, 사진을 보고 채점이 틀린 줄 알게 된다 (사용자 2026-09-08)
+#   B16 방향        45° 가 아니라 뒷줄 같은 상품 기준 ±90° (~~180°~~ 사용자 2026-09-08)
 #   B9~B11 사다리   상자 밖으로 꺼낸(B8) 뒤부터 센다 (3층 목표에서 상자 속 상품이 프레임 0에 B10 을 넘던 구멍)
 #
 # 이 파일은 저장소의 다른 코드를 부르지 않는다. taskB_shelf / taskB_restock / taskB_table 세 모듈은
 # 패키지 __init__ 을 타지 않고 파일 경로로 읽는다 -- 패키지가 isaaclab 과 toml 을 끌어오기 때문이고,
 # humanoid-challenge-env/scripts/task_b_replay.py 가 같은 이유로 같은 방법을 쓴다.
 #
-#   python3 scripts/tools/taskb_score.py <state.npz> [...]         판마다 30점 표
+#   python3 scripts/tools/taskb_score.py <state.npz> [...]         판마다 TOTAL 점 표
 #   python3 scripts/tools/taskb_score.py --glob '<dir>/*.npz' --json out.json
 
 import argparse
@@ -94,13 +106,34 @@ THRESHOLD = {
                              #     실패한 pick 은 로컬 표본에 없어 「끌린 것」쪽 분포는 못 쟀다
     "near_shelf_mm": 300.0,  # B9  ※ 실측: passed 3,133판 x 최대 최소 0.513, refused 164판 중 160판도 넘음.
                              #     사다리의 첫 칸이라 후한 것이 맞다
-    "upright_deg": 90.0,     # B15 뒷줄 같은 상품의 z 축과 같은 쪽을 보는가 -- 각도 < 90° (사용자 2026-09-03: "z방향이 같으면").
-                             #     ※ 시트의 15° 는 놓은 539판 중 87 만 통과했고, 90° 선은 85~95° 에 263판이 몰린 자리다
-    "facing_deg": 90.0,      # B16 뒷줄 같은 상품 기준 ±90° (사용자 2026-09-03). 서 있을 때(B15 통과)만 본다
+    "upright_deg": 45.0,     # B15 뒷줄 같은 상품의 z 축과 같은 쪽을 보는가 -- 각도 < 45° (사용자 2026-09-07).
+                             #     각도는 0~180° 라 **누운 것(90° 언저리)과 거꾸로 선 것(180° 언저리)이 둘 다**
+                             #     탈락한다. 거꾸로 선 것도 0점인 것은 사용자 결정이다 (2026-09-08).
+                             #     ※ 실측 passed 3,116판의 분포는 세 덩어리다: 0~10° 531 · 70~100° 2,051(누움) · 170~180° 524(거꾸로),
+                             #     40~70° 사이는 3판. 09-03 의 90° 선은 누운 덩어리 한가운데라 80~90° 의 1,123판이 「서 있음」이 됐다
+                             #     시트 "눕혀서 진열하는 상품은 누워 있는 것이 통과" (oreo_strawberry, taskb_orientation.json
+                             #     upright: false) 는 따로 안 둔다 -- 진열 자세에서 하늘을 보던 축을 견주므로 누운
+                             #     진열 자세가 곧 기준이다 (`up_angle_deg`).
+                             #     ~~실측: oreo 의 진열 자세 대비 tilt 0.0°~~ 이 근거는 틀렸다 -- `tilt_deg` 로 잰 값인데
+                             #     B15 가 쓰는 것은 `up_angle_deg` 였고, 그때의 `up_angle_deg` 는 **몸통 z 축**을 봤다.
+                             #     oreo 는 진열 자세에서 몸통 z 가 옆을 봐서(90°) 제 자세로 누워 있어도 58~179° 가 나왔다.
+                             #     2026-09-09 에 `up_angle_deg` 를 「진열에서 하늘 보던 축」으로 고쳐서 막았다 (MISTAKES §88)
+    "facing_deg": 90.0,      # B16 뒷줄 같은 상품 기준 ±90° (사용자 2026-09-08, ~~180°~~ ~~45°~~).
+                             #     B15(위아래)를 통과한 판만 본다. 제자리에서 돌아간 각도이고 0~180° 로 나온다.
+                             #     ±180° 이던 동안에는 서 있기만 하면 방향 4점이 무조건 붙어 거르는 것이 없었다.
+                             #     실측 B15 통과 563판: 0~30° 118 · 30~60° 56 · 60~90° 96 · 90~120° 101 ·
+                             #     120~150° 72 · 150~180° 120 -- 이 선에서 293판이 방향 4점을 잃는다.
+                             #     분포가 고르게 퍼져 있어 선 둘레에 골짜기가 없다. 사용자가 정한 값이다
     "still_mm_s": 10.0,      # B18
     "watch_s": 3.0,          # 시트: 놓은 뒤 3초에 판정한다
     "crate_tilt_deg": 45.0,  # B19 ※ 실측: passed 3,133판 중 45° 안 3,127
-    "neighbour_deg": 15.0,   # B20 시트의 「서 있는가」 자(15°)를 진열 자세 기준으로 그대로 쓴다
+    "crate_moved_mm": 20.0,  # B19 파란 상자가 첫 자리에서 xy 로 이만큼 넘게 밀렸으면 0점 (시트·발표 대본 "2 cm 이상 움직이지
+                             #     않았다면", 사용자 2026-09-07). 실측: passed 3,133판 최대 4.9 mm, pick 2,284판 중 넘는 판 9
+    "neighbour_deg": 15.0,   # B20 시트 B15 의 옛 자(진열 자세 대비 15°)를 그대로 쓴다
+    "neighbour_moved_mm": 5.0,  # B20 이웃이 판 안에 이만큼 넘게 밀렸으면 「건드려 움직였다」 (사용자 2026-09-07: "로봇에 의해
+                             #     상품이 움직이면 가점은 없다"). 실측 passed 3,133판: 손 안 댄 이웃의 흔들림 상위 1 % 가 0.1 mm,
+                             #     5 mm 넘게 밀린 판 5(5.1~15.2 mm). 2 mm 로 두면 로봇이 1 m 떨어져 있을 때 물리가 한 번 튄
+                             #     2.0~2.3 mm 짜리(demo_05 의 3층 말차 송이 등 셋)까지 걸려서 5 mm 다 (사용자 2026-09-07)
 }
 
 # ---- 시트 -- id · Sub Task · 배점 · 판정 종류 · 평가 항목(B열 그대로) -------------------------
@@ -111,18 +144,19 @@ RUBRIC = (
     ("B9", "A-2", 2, "ever", "product 를 선반 앞까지 가져갔는가"),
     ("B10", "A-2", 2, "ever", "product 를 목표 층 높이까지 올렸는가"),
     ("B11", "A-2", 2, "ever", "product 를 목표 칸 바로 앞까지 가져갔는가"),
-    ("B12", "A-2", 3, "at", "product 를 끝까지 떨어뜨리지 않았는가"),
+    ("B12", "A-2", 4, "at", "product 를 끝까지 떨어뜨리지 않았는가"),   # 2026-09-07 시트: 3 → 4
     ("B13", "A-3", 2, "at", "목표 층에 올렸는가"),
     ("B14", "A-3", 4, "at", "어느 칸에 넣었는가"),
-    ("B15", "A-3", 2, "at", "서 있는가"),
-    ("B16", "A-3", 1, "at", "방향이 맞는가"),
+    ("B15", "A-3", 2, "at", "뒷줄 상품과 위아래가 같은가"),   # 2026-09-08 사용자: ~~서 있는가~~
+    ("B16", "A-3", 4, "at", "방향이 맞는가"),                          # 2026-09-07 시트 C16: 1 → 4 (D16 은 1로 남아 있어 사용자 결정 09-07)
     ("B17", "A-3", 1, "at", "앞줄인가"),
     ("B18", "A-3", 1, "at", "멈췄는가"),
     ("B19", "A-4", 2, "at", "파란색 상자가 탁자 위에 그대로 있는가"),
     ("B20", "A-4", 2, "at", "선반 위 다른 상품들이 그대로 서 있는가"),
 )
 POINTS = {r[0]: r[2] for r in RUBRIC}
-assert sum(POINTS.values()) == 30
+TOTAL = sum(POINTS.values())     # 34 (2026-09-07). 화면·문서는 이 이름을 쓴다 -- 30 을 박아 두면 시트가 바뀔 때 거짓이 된다
+assert TOTAL == 34
 
 
 # ---- 쿼터니언 (w, x, y, z) -- task_b_episode.py 의 것과 같다 ------------------------------
@@ -150,10 +184,35 @@ def tilt_deg(q, display_quat):
     return math.degrees(math.acos(max(-1.0, min(1.0, qrot(q, up)[2]))))
 
 
-def up_angle_deg(q, q_ref):
-    """두 자세의 z 축이 벌어진 각도 -- 놓은 상품과 뒷줄 같은 상품이 같은 쪽을 보는가 (B15)."""
-    a, b = qrot(q, (0.0, 0.0, 1.0)), qrot(q_ref, (0.0, 0.0, 1.0))
+def up_angle_deg(q, display_q, q_ref, display_ref):
+    """놓은 상품과 뒷줄 상품이 **같은 쪽을 보고 있는가** -- 각자 진열 자세에서 하늘을 보던 축이
+    둘 사이에 몇 도 벌어졌나 (B15).
+
+    몸통 z 축이 아니라 이 축을 쓴다. 세워 두는 상품은 진열 자세에서 몸통 z 가 곧 위라서 둘이
+    같지만, 눕혀 두는 상품(`taskb_orientation.json` 의 upright: false -- 실측 2026-09-09 기준
+    oreo_strawberry 하나)은 몸통 z 가 옆을 봐서, 제자리에 제 자세로 누워 있어도 좌우로 돌아간
+    만큼 각도가 벌어진다.
+
+    실측 2026-09-09, 로컬 전수 7,506판: 제 진열 자세로 놓인 oreo 9판 중 6판이 몸통 z 로는
+    58~179° 가 나와 0점이었고, 이 축으로 재면 0.6~1.8° 다. 세워 두는 상품 4,306판은 판정이
+    하나도 안 바뀐다 (두 축이 같아서다 -- 진열 자세에서 몸통 z 가 하늘과 이루는 각 0.0°).
+    """
+    up_a = qrot(qinv(display_q), (0.0, 0.0, 1.0))
+    up_b = qrot(qinv(display_ref), (0.0, 0.0, 1.0))
+    a, b = qrot(q, up_a), qrot(q_ref, up_b)
     return math.degrees(math.acos(max(-1.0, min(1.0, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))))
+
+
+def _pose_word(up_deg):
+    """위아래 차이를 사람 말로. 숫자만 보면 178° 가 왜 0점인지 사진과 어긋나 보인다.
+
+    실측 3,408판이 세 덩어리다: 0~15° 559 · 45~135° 2,307(누움) · 165~180° 536(거꾸로 섬).
+    거꾸로 선 것은 상자라서 그대로 서 있고, 그래서 사진만 보면 잘 놓인 것처럼 보인다.
+    그것이 0점인 것은 사용자 결정이다 (2026-09-08).
+    """
+    if up_deg < THRESHOLD["upright_deg"]:
+        return "똑바로 섬"
+    return "거꾸로 섬" if up_deg > 180.0 - THRESHOLD["upright_deg"] else "누움"
 
 
 def yaw_between_deg(q, q_ref):
@@ -223,11 +282,15 @@ class ProductScorer:
         self.display_quat = tuple(float(v) for v in taskB_restock.stock_orientation(name)[1])
         self.size = tuple(float(v) for v in taskB_restock.product(name)["size"])
         self.neighbours = dict(neighbours)   # {열쇠: (진열 자세 quat, size)}
+        self.neighbours0 = {}                # {열쇠: 첫 프레임 pos} -- B20 밀림은 여기서부터 잰다
+        self.neighbour_moved_mm = {}         # {열쇠: 판 안 최대 xy 이동 mm}
         self.back_key = back_key
         self.ever = {r[0]: None for r in RUBRIC if r[3] == "ever"}   # 처음 참이 된 프레임 번호
         self.z0 = None
         self.rim = None
         self.in_crate0 = None
+        self.crate0 = None
+        self.crate_moved_max_mm = 0.0
         self.lift_max_mm = 0.0
         self.moved_max_mm = 0.0
         self.moved_at_touch_mm = None
@@ -244,6 +307,9 @@ class ProductScorer:
         대는 그 프레임에 finish("dropped") 를 부르고 `done` 이 된다 -- 시트: "상품이 바닥에
         떨어지면 그 상품의 평가는 거기서 끝난다. 떨어진 상품을 다시 줍는 것은 허용하지 않는다".
         그 뒤의 update 는 무시된다.
+
+        조합 중단도 여기서 본다 (시트 [심사 유의사항]): 상자가 탁자에서 떨어지면 finish("crate_off_table") --
+        그 순간까지의 점수가 최종이다. ~~탁자가 10 cm 넘게 움직임~~ 은 09-07 에 채점 기준에서 뺐다 (사용자).
         """
         if self.done:
             return
@@ -255,6 +321,18 @@ class ProductScorer:
             self.in_crate0 = in_crate
             # 테두리 높이는 상수가 아니라 상자가 탁자에 자리 잡은 뒤의 z 에서 잰다 (시트 B8 ※).
             self.rim = float(crate_pos[2]) + CRATE_H
+            self.crate0 = np.asarray(crate_pos, dtype=float)
+            self.crate_moved_max_mm = 0.0
+            self.neighbours0 = {k: np.asarray(shelf[k][0], dtype=float) for k in self.neighbours if k in shelf}
+        # B19 -- 상자가 첫 자리에서 xy 로 얼마나 밀렸나, 판 안 최대
+        self.crate_moved_max_mm = max(self.crate_moved_max_mm,
+                                      float(np.linalg.norm(np.asarray(crate_pos, dtype=float)[:2] - self.crate0[:2])) * 1000.0)
+        # B20 -- 이웃이 첫 자리에서 xy 로 얼마나 밀렸나, 판 안 최대 (넘어지지 않아도 건드려 움직였으면 0점)
+        for k, p0 in self.neighbours0.items():
+            if k in shelf:
+                d = float(np.linalg.norm(np.asarray(shelf[k][0], dtype=float)[:2] - p0[:2])) * 1000.0
+                if d > self.neighbour_moved_mm.get(k, 0.0):
+                    self.neighbour_moved_mm[k] = d
         self.lift_max_mm = max(self.lift_max_mm, (float(p[2]) - self.z0) * 1000.0)
         moved_mm = float(np.linalg.norm(in_crate - self.in_crate0)) * 1000.0
         self.moved_max_mm = max(self.moved_max_mm, moved_mm)
@@ -293,6 +371,11 @@ class ProductScorer:
             q = tuple(float(v) for v in product_quat)
             if board_under(p, q, self.size)[0] is None and self._on_floor(p, q):
                 self.finish("dropped")
+                return
+        # ---- 조합 중단: 파란 상자가 탁자에서 떨어짐 = 상자 중심이 탁자 윗면 아래 (B19 와 같은 자)
+        if float(crate_pos[2]) + CRATE_H / 2.0 < TABLE_TOP:
+            self.finish("crate_off_table")
+            return
 
     def _on_floor(self, p, q):
         """상품의 밑면이 바닥(z = 0)에 닿아 있나. 허용 폭은 판 위 판정과 같은 ON_BOARD_MM."""
@@ -320,17 +403,20 @@ class ProductScorer:
         m["lift_max_mm"] = round(self.lift_max_mm, 1)
         m["rim_z"] = round(self.rim, 4)
 
-        # B12 -- 시트: 떨어뜨려서 끝난 것이 아니면 통과. 「떨어졌다」는 손에서 벗어나 바닥·탁자·상자에 떨어진
-        # 것이고 선반 판 위에 내려놓은 것은 아니다. 그래서 끝 프레임에 ① 밑면이 어느 선반 판에 닿아 있으면 놓은
-        # 것, ② 아니면서 상자 테두리보다 낮으면 떨어진 것(바닥 · 탁자 위 · 상자 속은 전부 테두리 아래다), ③ 판에
-        # 안 닿았는데 테두리 위면 아직 손에 든 채 끝난 것(시간 초과 · refused)이다. ③ 은 떨어뜨린 것이 아니므로
-        # 시트대로 통과다. 새 문턱값 없이 이미 잰 테두리 높이 하나로 가른다.
+        # B12 -- 시트: 떨어뜨려서 끝난 것이 아니면 통과. 「떨어뜨렸다」는 **편의점 바닥**에 떨어진 것뿐이다 (사용자
+        # 2026-09-07: 상자 속으로 떨어졌다가 다시 집어 진열하면 허용). 그래서 바닥 감지(update 의 finish("dropped"))가
+        # 울린 판만 떨어진 것이고, 끝 프레임에 밑면이 어느 선반 판에 닿아 있으면 놓은 것, 둘 다 아니면 든 채 끝난
+        # 것(시간 초과 · refused · 상자 속)이다. ~~테두리보다 낮으면 떨어진 것~~ 은 09-07 에 뺐다 -- 상자 위치가 이상한
+        # 판 6개에서 손에 든 상품(z 0.87~0.92)이 떨어진 것으로 찍혔다.
         lay, m["under_mm"] = board_under(p, q, self.size)
         placed = lay is not None
-        dropped = (not placed) and float(p[2]) < self.rim
+        dropped = reason == "dropped"
         m["end_reason"] = "placed" if placed else ("dropped" if dropped else "in_hand")
         m["end_by"] = reason
-        pts["B12"] = 0 if dropped else POINTS["B12"]
+        # **선반에 내려놓았을 때만 점수다** (사용자 2026-09-09). 든 채 끝났으면(시간 초과 · refused ·
+        # 상자 속에 둔 채) 「끝까지 떨어뜨리지 않았다」를 물을 자리가 아니다 -- 진열을 마치지 못한 것이다.
+        # ~~떨어뜨려서 끝난 것이 아니면 통과~~ 는 이날 바뀌었다: 그때는 실패한 pick 2,593판이 4점을 받았다.
+        pts["B12"] = POINTS["B12"] if placed else 0
 
         # ---- 아래 여섯(B13~B18)은 시트가 「놓은 뒤 3초」에 보는 것이다. 놓지 않았으면 볼 것이 없다: 든 채
         # 끝났거나 떨어뜨렸으면 전부 0. 이 관문이 없으면 칸 앞 허공에 든 상품이 8점을 받는다 (2026-09-03 대조).
@@ -358,12 +444,18 @@ class ProductScorer:
 
             # B15 -- 뒷줄 같은 상품과 z 축이 같은 쪽인가 (사용자 2026-09-03: "진열된 상품이랑 동일한 방향으로 서
             # 있으면 돼. z방향이 같으면"). 뒷줄이 없으면 진열 자세(stock_orientation)의 z 축과 견준다.
+            # 각도를 접지 않는다 -- 접으면 180° 가 0° 가 되어 거꾸로 선 것이 통과한다 (사용자 2026-09-08: 0점).
             if self.back_key and self.back_key in shelf:
                 m["up_ref"] = self.back_key
-                m["up_deg"] = round(up_angle_deg(q, shelf[self.back_key][1]), 1)
+                # 뒷줄 상품의 진열 자세는 그 상품 것을 쓴다 (거의 늘 같은 상품이지만 가정하지 않는다)
+                back_disp = (self.neighbours[self.back_key][0]
+                             if self.back_key in self.neighbours else self.display_quat)
+                m["up_deg"] = round(up_angle_deg(q, self.display_quat,
+                                                 shelf[self.back_key][1], back_disp), 1)
             else:
                 m["up_ref"] = "display"
-                m["up_deg"] = round(up_angle_deg(q, self.display_quat), 1)
+                m["up_deg"] = round(up_angle_deg(q, self.display_quat,
+                                                 self.display_quat, self.display_quat), 1)
             upright = m["up_deg"] < THRESHOLD["upright_deg"]
             pts["B15"] = POINTS["B15"] if upright else 0
 
@@ -374,7 +466,8 @@ class ProductScorer:
                 else:
                     ref, m["facing_ref"] = self.display_quat, "display"
                 m["yaw_deg"] = round(yaw_between_deg(q, ref), 1)
-                pts["B16"] = POINTS["B16"] if m["yaw_deg"] < THRESHOLD["facing_deg"] else 0
+                # 경계를 넣는다 (`<=`) -- 「±90° 안이면 통과」라는 말은 90.0° 도 통과라는 뜻이다.
+                pts["B16"] = POINTS["B16"] if m["yaw_deg"] <= THRESHOLD["facing_deg"] else 0
 
             # B17 -- 앞줄 칸 중심과 뒷줄 칸 중심의 딱 가운데보다 앞에
             pts["B17"] = POINTS["B17"] if float(p[0]) < FRONT_ROW_X else 0
@@ -382,14 +475,18 @@ class ProductScorer:
             # B18 -- 그 순간의 속도
             pts["B18"] = POINTS["B18"] if speed is not None and float(speed) < THRESHOLD["still_mm_s"] else 0
 
-        # B19 -- 상자 중심이 탁자 윗면 위 ∧ 바닥면이 수직에서 45° 안. origin 이 바닥이라 중심 = z + H/2
+        # B19 -- 상자 중심이 탁자 윗면 위 ∧ 바닥면이 수직에서 45° 안 ∧ 첫 자리에서 crate_moved_mm 넘게 안 밀림.
+        # origin 이 바닥이라 중심 = z + H/2
         crate_centre_z = float(cp[2]) + CRATE_H / 2.0
         m["crate_tilt_deg"] = round(math.degrees(math.acos(max(-1.0, min(1.0, qrot(cq, (0.0, 0.0, 1.0))[2])))), 1)
         m["crate_centre_z"] = round(crate_centre_z, 4)
+        m["crate_moved_mm"] = round(self.crate_moved_max_mm, 1)
         pts["B19"] = POINTS["B19"] if (crate_centre_z > TABLE_TOP
-                                       and m["crate_tilt_deg"] < THRESHOLD["crate_tilt_deg"]) else 0
+                                       and m["crate_tilt_deg"] < THRESHOLD["crate_tilt_deg"]
+                                       and self.crate_moved_max_mm <= THRESHOLD["crate_moved_mm"]) else 0
 
-        # B20 -- 원래 진열돼 있던 나머지 상품이 하나도 빠짐없이 ① 선반 판 위 ② 15° 안으로 서 있음
+        # B20 -- 원래 진열돼 있던 나머지 상품이 하나도 빠짐없이 ① 선반 판 위 ② 15° 안으로 서 있음 ③ 판 안에
+        # neighbour_moved_mm 넘게 밀리지 않음 (사용자 2026-09-07: 건드려 움직였으면 0점)
         fallen = []
         for key, (dq, nsize) in self.neighbours.items():
             if key not in shelf:
@@ -400,8 +497,13 @@ class ProductScorer:
                 fallen.append((key, "off_board"))
             elif tilt_deg(nq, dq) >= THRESHOLD["neighbour_deg"]:
                 fallen.append((key, f"tilt {tilt_deg(nq, dq):.0f}"))
+            elif self.neighbour_moved_mm.get(key, 0.0) > THRESHOLD["neighbour_moved_mm"]:
+                fallen.append((key, f"moved {self.neighbour_moved_mm[key]:.1f} mm"))
         m["neighbours_fallen"] = fallen
-        pts["B20"] = POINTS["B20"] if not fallen else 0
+        m["neighbour_moved_max_mm"] = round(max(self.neighbour_moved_mm.values()), 1) if self.neighbour_moved_mm else 0.0
+        # B12 와 같다 -- **선반에 내려놓았을 때만** 본다 (사용자 2026-09-09). 상품을 든 채 끝난 판은
+        # 다른 상품을 안 건드렸더라도 진열을 마치지 못한 것이라 이 2점을 받지 않는다.
+        pts["B20"] = POINTS["B20"] if (placed and not fallen) else 0
 
         got = sum(v for v in pts.values() if v is not None)
         mx = sum(POINTS[k] for k, v in pts.items() if v is not None)
@@ -476,9 +578,19 @@ def score_npz(path, products=None, end_frame=None):
                 open_ref, closed_ref = float(g[b8:].min()), float(g[b8])
                 if abs(closed_ref - open_ref) > 0.1:
                     after = np.arange(b8, n_all)
-                    hit = np.abs(g[after] - open_ref) < np.abs(g[after] - closed_ref)
-                    if hit.any():
-                        release = int(after[int(np.argmax(hit))])
+                    opened = np.abs(g[after] - open_ref) < np.abs(g[after] - closed_ref)
+                    # 놓은 순간은 **마지막으로 닫혀 있던 프레임의 바로 다음**이다 -- 첫 열림이 아니다.
+                    # 첫 열림을 쓰면 중간에 한 번 놓았다 다시 집는 판이 그 첫 열림에서 끝나 버린다:
+                    # 사용자 2026-09-07 "상자 안으로 떨어뜨렸다가 다시 집어 진열 -- 이건 허용이야" 와 어긋나고,
+                    # 그리퍼가 옮기는 중에 잠깐 열렸다 닫혀도 거기서 끝난다 (둘 다 2026-09-09 에 시험해 걸렸다:
+                    # 제대로 진열한 판이 14/34 로 끝났다). `place_release_review.py:37` 이 3,824판에서 정한
+                    # 「마지막으로 닫혀 있던 프레임」과 같은 규칙이다.
+                    if (~opened).any():
+                        last_closed = int(after[len(opened) - 1 - int(np.argmax(~opened[::-1]))])
+                        if last_closed + 1 < n_all:
+                            release = last_closed + 1
+                    elif opened.any():
+                        release = int(after[int(np.argmax(opened))])
         if end_frame is not None:
             n, why = min(n_all, int(end_frame) + 1), "end_frame"
         elif release is not None and release + watch < n_all:
@@ -516,6 +628,18 @@ def score_npz(path, products=None, end_frame=None):
 
 # ---- 화면 -----------------------------------------------------------------------------------
 END_WORDS = {"placed": "선반 위에 놓음", "dropped": "떨어뜨림", "in_hand": "든 채 끝남"}
+ABORT_WORDS = {"crate_off_table": "상자가 탁자에서 떨어져 조합 중단"}
+
+# 채점을 **왜 그 프레임에서** 했나 -- 사람 말로. `end_by` 를 그대로 보여 주면 읽는 쪽이
+# 알 수 없다 (사용자 2026-09-09: "종료가 되었는데 왜 종료가 되었는지 알 수가 없어").
+WHY_END = {
+    "released+3s": "손을 편 뒤 3초 -- 시트가 정한 판정 시점",
+    "released, record ended early": "손을 폈지만 3초를 못 채우고 기록이 끝남",
+    "last": "기록의 마지막 프레임 -- 끝까지 손을 안 펴서 판정 시점을 못 찾음",
+    "dropped": "상품 밑면이 편의점 바닥에 닿은 순간 -- 그 뒤는 안 봄",
+    "crate_off_table": "파란 상자가 탁자에서 떨어진 순간 -- 조합 중단",
+    "end_frame": "밖에서 채점 시점을 지정함",
+}
 
 
 def reasons(r):
@@ -528,16 +652,20 @@ def reasons(r):
         "B8": f"테두리 {m['rim_z']:.3f}",
         "B9": "", "B10": "",
         "B11": "",
-        "B12": END_WORDS[m["end_reason"]],
+        "B12": END_WORDS[m["end_reason"]] + (f" ({ABORT_WORDS[m['end_by']]})" if m["end_by"] in ABORT_WORDS else ""),
         "B13": (f"층 {m['layer']} 밑면 {m['under_mm']:+.0f} mm" if m["layer"] is not None
                 else f"판 위 아님 (밑면 {m['under_mm']} mm)" if m["under_mm"] is not None else "선반 밖"),
         "B14": f"칸 {m['cell']} 좌우 {m['off_y_mm']:+.0f} mm",
-        "B15": (f"z축 차 {m['up_deg']}° vs {m['up_ref']} (진열 자세 대비 tilt {m['tilt_deg']}°)"
+        "B15": (f"위아래 차 {m['up_deg']}° vs {m['up_ref']} ({_pose_word(m['up_deg'])})"
                 if m["up_deg"] is not None else "안 놓음"),
-        "B16": (f"yaw {m['yaw_deg']}° vs {m['facing_ref']}" if m["yaw_deg"] is not None else "안 서 있음"),
+        # B15 가 떨어지면 여기는 볼 것이 없다. 그때 왜 떨어졌는지를 그대로 옮겨 적는다 --
+        # "안 서 있음" 이라고만 적으면 거꾸로 선 판에서 사진과 어긋나 보인다 (사용자 2026-09-08).
+        "B16": (f"yaw {m['yaw_deg']}° vs {m['facing_ref']}" if m["yaw_deg"] is not None
+                else f"위아래가 다름 ({_pose_word(m['up_deg'])})" if m["up_deg"] is not None
+                else "안 놓음"),
         "B17": f"x {m['x']:.3f} (금 {FRONT_ROW_X:.3f})",
         "B18": f"{m['speed_mm_s']} mm/s" if m["speed_mm_s"] is not None else "속도 없음",
-        "B19": f"tilt {m['crate_tilt_deg']}° 중심 z {m['crate_centre_z']:.3f}",
+        "B19": f"tilt {m['crate_tilt_deg']}° 중심 z {m['crate_centre_z']:.3f} 밀림 {m['crate_moved_mm']:.1f} mm",
         "B20": ("전부 서 있음" if not m["neighbours_fallen"]
                 else " ".join(f"{k}:{w}" for k, w in m["neighbours_fallen"])),
     }

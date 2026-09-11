@@ -174,10 +174,10 @@ class ProductScore:
             f"{cfg.grip_hold_s:.1f}초 연속 유지됐다 (최대 {e['max_load_nm']:.1f}N·m)",
             (f"부하 최대 {e['max_load_nm']:.1f}N·m, 연속 유지 최대 {e['max_grip_run_s']:.2f}초 — "
              f"기준({cfg.grip_load_min_nm:.1f}N·m / {cfg.grip_hold_s:.1f}초)에 못 미쳤다. "
-             + ("쥐긴 했으나 오래 못 buttal." if e['max_load_nm'] >= cfg.grip_load_min_nm
+             + (f"쥐긴 했으나 {cfg.grip_hold_s:.1f}초를 못 채웠다."
+                if e['max_load_nm'] >= cfg.grip_load_min_nm
                 else "모터가 밀지 않았다 — 손가락 사이에 아무것도 없었다.")),
             "그리퍼 부하가 배선되지 않아 재지 못했다")
-        out["sub1_1_grip"] = out["sub1_1_grip"].replace("오래 못 buttal.", "0.3초를 못 채웠다.")
 
         _ml = e["max_lift_m"]
         say("sub1_2_lift", self.lift,

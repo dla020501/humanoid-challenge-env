@@ -195,6 +195,12 @@ def draw_scene(seed, seat_id):
     rx, ry, ryaw = taskA_layout.spawn_robot_pose(seat)
     gx, gy, gyaw = taskA_layout.goal_pose()
     dx, dy, dz = taskA_layout.desk_pos()
+    # 바구니는 좌석이 정한 자리에서 seed 가 정한 만큼 옮긴다 (반경 20 mm 안, 방향은 그대로).
+    # 규칙과 20 mm 의 근거는 `taskA_scene_seed.CRATE_SHIFT_M` 에 있다. **여기 한 곳만 바꾸면
+    # 스폰·가라앉힌 뒤 다시 적기(`rewrite_props`)·`--scene-json` 이 전부 따라온다** -- 셋 다
+    # `SCENE["basket"]` 을 읽는다. 스폰만 옮기면 `rewrite_props` 가 기본 자리로 되돌려 놓는다.
+    bx, by, bz = seat["basket_xyz"]
+    cdx, cdy = seeds["crate_shift_m"]
 
     return {
         "seed": seed,
@@ -207,8 +213,9 @@ def draw_scene(seed, seat_id):
         "robot": (float(rx), float(ry), float(ryaw)),
         # 바구니는 탁상 위에 놓이고, 긴 면이 로봇을 향하도록 좌석 각도만큼 돌아간다.
         "basket": {
-            "pos": tuple(float(v) for v in seat["basket_xyz"]),
+            "pos": (float(bx + cdx), float(by + cdy), float(bz)),
             "yaw": math.radians(float(seat["seat_angle_deg"])),
+            "shift": (float(cdx), float(cdy)),     # 기본 자리에서 옮긴 양 (m)
         },
         "goal": (float(gx), float(gy), float(gyaw)),
         "desk": (float(dx), float(dy), float(dz)),
@@ -239,6 +246,10 @@ def print_scene(scene):
     print("\n  집을 것 -- 탁상 위 파란 바구니")
     print(f"    바구니    ({bx:+.3f}, {by:+.3f}, {bz:.3f})  "
           f"yaw {math.degrees(scene['basket']['yaw']):+.1f} 도")
+    sx, sy = scene["basket"]["shift"]
+    print(f"    옮김      좌석 기본 자리에서 ({sx * 1000:+.1f}, {sy * 1000:+.1f}) mm = "
+          f"{math.hypot(sx, sy) * 1000:.1f} mm  (seed 가 정한다. 반경 "
+          f"{taskA_scene_seed.CRATE_SHIFT_M * 1000:.0f} mm 안, 방향은 그대로)")
     print(f"    크기      {taskA_layout.BASKET_SIZE[0]:.3f} x "
           f"{taskA_layout.BASKET_SIZE[1]:.3f} x {taskA_layout.BASKET_SIZE[2]:.3f} m")
     print(f"    탁상      중심 ({tx:+.3f}, {ty:+.3f})  반지름 {g['table_radius']:.4f}  "
@@ -294,6 +305,8 @@ def scene_json(scene):
                   "head_pitch_deg": round(math.degrees(taskA_layout.SPAWN_HEAD_PITCH), 3)},
         "basket": {"pos": [round(v, 5) for v in scene["basket"]["pos"]],
                    "yaw_deg": round(math.degrees(scene["basket"]["yaw"]), 3),
+                   # 좌석 기본 자리에서 옮긴 양. `pos` 에 이미 더해져 있다
+                   "shift_mm": [round(v * 1000.0, 2) for v in scene["basket"]["shift"]],
                    "size": list(taskA_layout.BASKET_SIZE)},
         "goal": {"pos": [round(gx, 5), round(gy, 5)],
                  "yaw_deg": round(math.degrees(gyaw), 3)},
@@ -345,6 +358,37 @@ if args_cli.check:
               f"로봇 ({x:7.3f}, {y:7.3f}) yaw {math.degrees(yaw):+7.1f}  "
               f"목적지까지 {math.hypot(x - gx, y - gy):6.3f} m")
     problems = taskA_seats.check(store_x=taskA_layout.STORE_X, store_y=taskA_layout.STORE_Y)
+
+    # 바구니 **네 모서리**가 탁상 안에 있는가 -- seed 가 어느 쪽으로 20 mm 를 밀어도.
+    #
+    # `taskA_seats.check()` 는 바구니 **중심**만 본다. 중심이 탁상 안이어도 모서리는 나갈 수
+    # 있고, 바구니는 탁상 끝까지 여유가 35.2 mm 뿐이다. 누가 `CRATE_SHIFT_M` 을 늘리거나
+    # 바구니를 바꾸면 여기서 먼저 걸려야 한다 -- 시뮬레이터에서는 바구니가 떨어지는 것으로만 보인다.
+    _R = g["table_radius"]
+    _U, _V = taskA_layout.BASKET_SIZE[0], taskA_layout.BASKET_SIZE[1]   # 좌석 방향, 가로
+    _sh = taskA_scene_seed.CRATE_SHIFT_M
+    _base, _worst = 1e9, (1e9, None)
+    for i, s in enumerate(taskA_seats.seats(stool_seed=args_cli.seed)):
+        tx, ty = s["table_xy"]
+        bx, by, _ = s["basket_xyz"]
+        c, sn = math.cos(math.radians(s["seat_angle_deg"])), math.sin(math.radians(s["seat_angle_deg"]))
+
+        def _clear(cx, cy):
+            far = max(math.hypot(cx + c * u - sn * v - tx, cy + sn * u + c * v - ty)
+                      for u in (-_U / 2, _U / 2) for v in (-_V / 2, _V / 2))
+            return (_R - far) * 1000.0
+
+        _base = min(_base, _clear(bx, by))
+        for k in range(360):
+            a = math.radians(k)
+            m = _clear(bx + _sh * math.cos(a), by + _sh * math.sin(a))
+            if m < _worst[0]:
+                _worst = (m, i)
+    print(f"\n  바구니 모서리에서 탁상 끝까지 -- 기본 자리 {_base:.1f} mm, "
+          f"{_sh * 1000:.0f} mm 옮겼을 때 최악 {_worst[0]:.1f} mm (좌석 {_worst[1]})")
+    if _worst[0] < 0.0:
+        problems = problems + [f"바구니를 {_sh * 1000:.0f} mm 옮기면 모서리가 탁상 밖으로 "
+                               f"{-_worst[0]:.1f} mm 나간다 (좌석 {_worst[1]})"]
 
     # 진열도 여기서 본다. `stock()`/`gaps()`/`pick()` 은 순수 산술이라 Isaac 없이 돈다 --
     # 진열이 비는 것은 시뮬레이터 60 초를 치르기 전에 알 수 있는 종류의 문제다.

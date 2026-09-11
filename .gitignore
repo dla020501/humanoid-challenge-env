@@ -19,3 +19,6 @@ docker/challenge-overlay.tar.gz
 docs/*-plan.md
 docs/*-todo.md
 docs/*-notes.md
+
+# 허깅페이스 학습 데이터를 펼쳐 둔 자리 -- 재생기가 --lerobot 으로 만든다
+scripts/taskC/.lerobot_cache/
