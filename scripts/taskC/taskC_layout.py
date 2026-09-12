@@ -78,11 +78,18 @@ _SHIFT_Y = COUNTER_CENTRE_WORLD[1] - (-3.50)          # = -0.72
 # 그래야 손↔상품 관계가 보존된다. 상품만 제자리에 두면 파지가 무너진다(예전 실측:
 # 상품을 옮겼더니 들림 212.7 -> 1.7 mm). 실제로 20 mm 실험에서 컵의 화면 위치는
 # +8.47 -> +8.51 px 로 불변이었고 계산대 모서리만 +7 -> 0 px 로 맞았다.
-BASE_BACK = float(os.environ.get("TASKC_BASE_BACK", "0.019"))
+# 2026-09-11: 0.019 -> 0.119. 로봇을 100 mm 더 물린다. 머리캠이 카메라를 기울이지 않고
+# 관절만으로 작업 영역을 담으려면 그만큼 멀리서 봐야 한다. 팔은 닿는다(닿는 격자 실측:
+# 띠 안 77 칸 전부 O, 다만 먼 쪽 여유가 0 이라 여기가 한계다). `SCENE_FWD` 는 0.019 로
+# 둔다 -- `BAND` 가 이미 세계 고정분을 품고 있어 같이 올리면 띠가 두 번 밀린다.
+BASE_BACK = float(os.environ.get("TASKC_BASE_BACK", "0.119"))
 ROBOT_BASE_WORLD = (-3.45, -3.55 + _SHIFT_Y - BASE_BACK, 0.0)
 ROBOT_YAW = _math.pi / 2.0                # 세계 +Y 를 본다 = 계산대 위로
 LIFT_JOINT_POS = 0.0                      # kit_config.LIFT_JOINT_POS
-HEAD_PITCH = 0.6951                       # V4-139: 60 도를 요청하지만 관절 한계 0.6951 rad(39.8 도)
+# 2026-09-11: 0.6951(39.83 도) -> 0.7854(45 도). URDF 상한을 `taskC_ffw_sg2` 가 스폰 때
+# 올려 주므로 관절이 여기까지 간다. 종전에는 모자란 각을 카메라에 더했는데(30 도),
+# ZED 는 head_link2 에 rpy 0 0 0 으로 볼트 고정이라 실기에 그 회전이 없다.
+HEAD_PITCH = 0.7854                       # 45 도. URDF 원 한계는 0.6951(39.83 도)
 HEAD_YAW = 0.0
 # kit_config.STOW_ARM_POS -- 오른팔 값. 왼팔은 joint2·joint3 의 부호를 뒤집는다
 # (kit_config.stow_joint_pos 실측: 두 팔의 그 두 관절 가동범위가 거울상이다).
@@ -125,7 +132,11 @@ def start_joint_pos() -> dict:
 #
 # 상품이 놓이는 사각형 (로봇 좌표). `.urdf_export/reach_band_final.json` 의 x0/x1/y0/y1.
 # 테이프 폭 20 mm 는 띠 안쪽에서 뺀다 -- 상품이 테이프에 닿아서도 안 된다.
-BAND = {"x0": 0.1101, "x1": 0.4999, "y0": -0.01, "y1": 0.57}
+# 2026-09-11: 로봇을 100 mm 물리면서 x 를 그만큼 앞으로 옮겨 띠의 **세계 자리**를 지킨다
+# (먼 변 0.4999+0.10=0.5999). 가까운 변은 거기에 89.8 mm 를 더 당겨 세로를 389.8 -> 300 mm
+# 로 줄였다 -- 로봇이 멀어진 만큼 가까운 쪽이 화면 아래로 잘리기 때문이다.
+# 2026-09-12: 오른쪽 변(y0)을 10 mm 더 오른쪽으로 넓혀 가로 580 -> 590 mm.
+BAND = {"x0": 0.2999, "x1": 0.5999, "y0": -0.02, "y1": 0.57}
 TAPE_W = 0.02
 TAPE_T = 0.005                            # kit_config.TAPE_T -- 테이프 두께 5 mm
 TAPE_COLOR = (0.80, 0.03, 0.03)           # qr_scene 이 그리는 빨간 띠 색
@@ -133,7 +144,10 @@ TAPE_COLOR = (0.80, 0.03, 0.03)           # qr_scene 이 그리는 빨간 띠 �
 # 배치 규칙 상수 (qr_scene.deal)
 STOW_GRIP_XY = (0.19, 0.30)               # QR-35: 스토우 자세의 왼손 그리퍼가 띠 위에 떠 있는 자리
 STOW_GRIP_CLEAR = 0.14                    # 그 아래 반경 0.14 m 에는 상품을 놓지 않는다
-MIN_GAP = 0.10                            # QR-11: 상품 표면-표면 >= 10 cm
+MIN_GAP = 0.08                            # QR-11: 상품 표면-표면 >= 8 cm
+# 상품이 놓일 띠 안쪽은 26 x 55 cm 다. 여기에 상품 3 개를 떼어 놓아야 하므로 더 넓게
+# 잡으면 예감(긴 변 21 cm)과 컵라면 2 종이 함께 나오는 조합처럼 자리가 안 나온다.
+# 8 cm 면 8 종 중 3 종 조합 56 개가 전부 놓인다 (2026-09-12 실측 224/224).
 QR_TARGET_YAW_DEG = -90.0                 # kit_config.BARCODE_TARGET_YAW_DEG: QR 면이 세계 -Y(정 오른쪽)
 QR_AZ_TOL_DEG = 3.0                       # QR-62: 정착 후 허용 오차 +-3 도
 MAX_REDEAL = 50
@@ -214,7 +228,9 @@ def _q_rpy(r_, p_, y_):
 # 2.5~4 px 큰 것이 어느 각도에서도 안 사라졌다. 회전으로는 못 없애는 성분이 있다는 뜻이고,
 # 위 소실점 실측이 그것을 확정했다 -- **카메라는 맞고 매장(계산대) 쪽이 어긋나 있다.**
 # 띠는 dev 가 세계 좌표로 직접 그리므로 GT 와 같은 자리에 맺히고, 계산대는 매장 USD 에서 온다.
-HEAD_CAM_PITCH = _math.radians(float(os.environ.get("TASKC_HEAD_CAM_PITCH_DEG", "30.0")))
+# 2026-09-11: 기본 30 -> 0. 카메라 자체 하향을 없앤다. 실기의 ZED 는 head_link2 에
+# rpy 0 0 0 으로 고정이라 이 회전이 존재하지 않는다. 하향은 `HEAD_PITCH` 로만 낸다.
+HEAD_CAM_PITCH = _math.radians(float(os.environ.get("TASKC_HEAD_CAM_PITCH_DEG", "0.0")))
 _ZED_OFF = (0.0238122, 0.0249820, -0.0109594)
 _ZED_ROT = _q_rpy(0.0, HEAD_CAM_PITCH, 0.0)
 _W_ROT = _q_rpy(-_math.pi / 2.0, 1.66678943569, 0.0)
@@ -224,22 +240,23 @@ _W_OFF1 = (0.01085, 0.009, 0.021)
 # 초점거리·클리핑도 수집 판(rec_head/rec_wl/rec_wr, 같은 파일 469~480)의 값이다. 그 판은
 # focal 과 clipping 만 주고 나머지는 IsaacLab 기본값(조리개 20.955, 초점거리 400)에
 # 맡기므로 여기서도 같은 수를 적는다.
-#   머리 focal 10.5 clip (0.05, 20.0) HFOV 약 90 도 · 손목 focal 11.0 clip (0.03, 10.0) 약 87 도
+#   머리 focal 11.4441 clip (0.1, 100.0) 84.95 x 54.25 도 · 손목 focal 11.0408 clip (0.03, 100.0) 87.00 x 56.48 도
+#   (FFW_SG2_REAL_cameras.py 참조값. 종전 머리 10.5 · 손목 11.0, clip 20 m / 10 m)
 #
 # `rot180` 은 **저장하는 그림**을 180 도 돌린다는 뜻이다(v5-10, 같은 파일 1529 줄).
 # 카메라 자세에는 롤이 없다 -- 손목 기록만 뒤집혀 저장된다.
 CAMERAS = {
     "head_cam": dict(
         prim="HeadCam", body="head_link2", w=672, h=376,
-        focal=10.5, focus=400.0, aperture=20.955, clip=(0.05, 20.0),
+        focal=11.4441, focus=400.0, aperture=20.955, clip=(0.1, 100.0),
         off0=_ZED_OFF, rot=_ZED_ROT, off1=(0.0, 0.0, 0.0), rot180=False),
     "left_wrist_cam": dict(
         prim="WristCamL", body="arm_l_link7", w=424, h=240,
-        focal=11.0, focus=400.0, aperture=20.955, clip=(0.03, 10.0),
+        focal=11.0408, focus=400.0, aperture=20.955, clip=(0.03, 100.0),
         off0=_W_OFF0, rot=_W_ROT, off1=_W_OFF1, rot180=True),
     "right_wrist_cam": dict(
         prim="WristCamR", body="arm_r_link7", w=424, h=240,
-        focal=11.0, focus=400.0, aperture=20.955, clip=(0.03, 10.0),
+        focal=11.0408, focus=400.0, aperture=20.955, clip=(0.03, 100.0),
         off0=_W_OFF0, rot=_W_ROT, off1=_W_OFF1, rot180=True),
 }
 

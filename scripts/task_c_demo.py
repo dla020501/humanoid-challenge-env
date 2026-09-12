@@ -109,9 +109,31 @@ if args_cli.scene_file:
 else:
     from taskC import taskC_deal as D          # noqa: E402
     _slugs = D.pick_products(args_cli.seed, args_cli.products)
+    # 2026-09-12: 간격 10 cm 를 지킬 자리가 없으면 딜이 `Infeasible` 을 낸다. 규칙을
+    # 어긴 장면을 만들지 않으려고, 다음 딜로 넘어가며 한도까지 찾는다.
+    _d0, _a0 = None, 0
+    while _a0 < L.MAX_REDEAL:
+        try:
+            _d0 = D.deal(args_cli.seed, _a0, _slugs)
+            break
+        except D.Infeasible:
+            _a0 += 1
+    if _d0 is None:
+        raise SystemExit(f"! 시드 {args_cli.seed}: 상품 3 개를 간격 10 cm 로 놓을 자리가 "
+                         f"없다 (딜 {L.MAX_REDEAL} 회). 다른 시드를 쓴다.")
     SCENE = {"seed": args_cli.seed,
              "products": [{"slug": d["slug"], "pos": list(d["pos"]), "quat": list(d["quat"])}
-                          for d in D.deal(args_cli.seed, 0, _slugs)]}
+                          for d in _d0]}
+    # 2026-09-12: 기타 진열대(곤돌라)의 진열도 씨앗이 정한다. 구워 둔 12 벌 중 하나를 골라
+    # 장면에 적어 둔다 -- 재생기는 이 이름을 보고 같은 배경을 세운다. 계산대·상품·로봇은
+    # 그대로다. 구워 둔 것이 없으면 적지 않고 매장 USD 의 기본 진열로 간다.
+    try:
+        from taskC import taskC_store_dress as _SD       # noqa: E402
+        _svs = _SD.variants()
+        if _svs:
+            SCENE["store_variant"] = _svs[_SD.store_seed_for(args_cli.seed) % len(_svs)]
+    except Exception as _esd:
+        print(f"[장면] 진열 고르기 건너뜀: {_esd!r}", flush=True)
 
 PRODUCTS = [{"slug": p["slug"], "pos": tuple(float(v) for v in p["pos"]),
              "quat": tuple(float(v) for v in p["quat"])} for p in SCENE["products"]]
@@ -387,6 +409,23 @@ def main():
         except Exception as _e9:
             _log("턱 SDF 불가: %r" % (_e9,))
     counter.remove_low_shelf(stage, log=_log)
+    # 2026-09-12: 기타 진열대(곤돌라 12 개)에 이 판의 진열을 건다. 계산대·스캐너·빨간 띠·
+    # 집는 상품은 건드리지 않는다 -- 배경만 바뀐다. 정책이 배경까지 외우는 것을 막는다.
+    # 장면 파일에 `store_variant` 가 있으면 그 벌을 그대로 세운다(기록과 같은 배경이 선다).
+    # 없으면 걸지 않는다 -- 그 판은 매장 USD 의 기본 진열로 수집된 것이기 때문이다.
+    try:
+        from taskC import taskC_store_dress as _dress
+        _sv = SCENE.get("store_variant")
+        if _sv:
+            _vs = _dress.variants()
+            if _sv in _vs:
+                _dress.dress(stage, _vs.index(_sv), log=_log)
+            else:
+                _log("진열(기타): 장면이 가리키는 %s 이 없다 -- 기본 진열로 간다" % _sv)
+        else:
+            _log("진열(기타): 장면에 store_variant 가 없다 -- 기본 진열로 간다")
+    except Exception as _edr:
+        _log("진열(기타) 건너뜀: %r" % (_edr,))
     # V4-311: 스캐너와 로봇의 충돌을 **`sim.reset()` 전에** 끈다. 수집 파이프라인
     # (qr_sweep_replay.py 798~818)이 하는 그대로다. 리셋 뒤에 걸면 PhysX 가 이미 충돌 쌍을
     # 구성한 뒤라 먹지 않는다(그쪽 실측: `physics:filteredPairs not found` 경고).
@@ -665,12 +704,26 @@ def main():
             if _try >= L.MAX_REDEAL:
                 break
             _log("재딜 %d: %s" % (_try, ", ".join(K.redeal_reason(_res)) or "방위/간격"))
-            for k, d in enumerate(D.deal(args_cli.seed, _try, _slugs_d)):
+            _dn = None
+            while _try < L.MAX_REDEAL:
+                try:
+                    _dn = D.deal(args_cli.seed, _try, _slugs_d)
+                    break
+                except D.Infeasible:
+                    _try += 1
+            if _dn is None:
+                break
+            for k, d in enumerate(_dn):
                 _set_root(scene[f"p_{k}"], _prod_to_world(d["pos"]),
                           L.quat_robot_to_world(d["quat"]))
             scene.write_data_to_sim()
+        # 2026-09-12: 재딜을 다 써도 규칙을 못 지키면 **장면을 내놓지 않는다**. 종전에는
+        # 경고만 찍고 그대로 진행해 간격 10 cm 위반 장면이 그대로 나갔다 (레포의 장면
+        # 960 개 중 100 개가 그런 판이다). 둥근 어깨 형상의 기움 구제만 종전대로 둔다.
         if not _ok and not K.fail_open_ok(_res):
-            _log("!! 배치가 규칙을 못 지켰다 (재딜 %d 회)" % _try)
+            raise SystemExit("! 시드 %d: 배치가 규칙을 못 지켰다 (재딜 %d 회) -- %s"
+                             % (args_cli.seed, _try,
+                                ", ".join(K.redeal_reason(_res)) or "방위/간격"))
         for k, r in enumerate(_res):
             SCENE["products"][k]["pos"] = list(r["pos"])
             SCENE["products"][k]["quat"] = list(r["quat"])

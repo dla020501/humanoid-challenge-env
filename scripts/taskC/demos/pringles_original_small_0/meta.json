@@ -1,6 +1,6 @@
 {
  "slug": "pringles_original_small",
- "seed": 4106123000,
+ "seed": 4943006000,
  "grade": "CLEAN",
  "n_ok": 0,
  "product_name": "프링글스 오리지널",
@@ -11,10 +11,10 @@
   "3": "프링글스 오리지널을 다시 제자리에 가져다 놓아라"
  },
  "sample_index": 0,
- "source_seed": 4106123000,
+ "source_seed": 4943006000,
  "record_hz": 30,
- "n_frames": 3099,
- "seconds": 103.3,
+ "n_frames": 1961,
+ "seconds": 65.4,
  "cams": [
   "cam_head",
   "cam_wrist_left",

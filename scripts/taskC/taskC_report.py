@@ -88,7 +88,7 @@ def print_summary(d):
                      f"[{p['product']}] {shape}{extra}")
     lines.append("")
     lines.append(f"  빨간 띠(로봇 좌표)  x {b['x0']:.3f}~{b['x1']:.3f}  y {b['y0']:.3f}~{b['y1']:.3f}  "
-                 f"테이프 {d['band']['tape_w'] * 1000:.0f} mm  -- 상품끼리 10 cm 이상")
+                 f"테이프 {d['band']['tape_w'] * 1000:.0f} mm  -- 상품끼리 {L.MIN_GAP * 100:.0f} cm 이상")
     s = d["scanner"]
     lines.append(f"  스캐너    오른손이 드는 자리 ({s['pos'][0]:+.3f}, {s['pos'][1]:+.3f}, {s['pos'][2]:.3f})  "
                  f"크기 {s['size'][0]:.3f} x {s['size'][1]:.3f} x {s['size'][2]:.3f} m")

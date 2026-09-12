@@ -75,11 +75,11 @@ def product_mesh_usd(slug: str) -> _pathlib.Path:
     return product_dir(slug) / f"{slug}.usdc"
 
 
-# 평가 표본 시드. `--seed 0/1/2` 는 cstore-challenge `ship/ground_truth_sample/` 의 세 판(상품 3개
-# 연속 정답 궤적)을 가리킨다. 그 장면은 원 시드(SAMPLE_SEEDS 값)로 만들었지만 상품 조합은 수집
-# 파이프라인이 따로 정한 것이라 시드만으로 되살릴 수 없다. 그래서 정착된 장면 파일을 `samples/` 에
-# 그대로 두고, 표본 시드를 받으면 딜하지 않고 그 파일을 세운다 -- 정답 궤적과 mm 까지 같은 자리다.
-SAMPLE_SEEDS = {0: 3015066000, 1: 3050039000, 2: 4156003000}
+# 평가 표본 시드. 정답 궤적(GT) 세 판의 장면을 `samples/` 에 두고, `--seed 0/1/2` 를 받으면
+# 딜하지 않고 그 파일을 그대로 세워 정답 궤적과 mm 까지 같은 자리를 만들던 자리다.
+# 2026-09-12: GT 를 새 구성으로 다시 수집하는 중이라 표본 장면을 뺐다. 그동안 시드 0·1·2 도
+# 보통 시드와 똑같이 딜한다. GT 를 다시 실을 때 여기에 시드와 장면을 되돌린다.
+SAMPLE_SEEDS = {}
 _SAMPLES = _pathlib.Path(__file__).resolve().parent / "samples"
 
 
