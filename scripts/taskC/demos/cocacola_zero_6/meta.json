@@ -1,6 +1,6 @@
 {
  "slug": "cocacola_zero",
- "seed": 5080270000,
+ "seed": 4941003000,
  "grade": "CLEAN",
  "n_ok": 0,
  "product_name": "코카콜라 제로",
@@ -11,10 +11,10 @@
   "3": "코카콜라 제로를 다시 제자리에 가져다 놓아라"
  },
  "sample_index": 6,
- "source_seed": 5080270000,
+ "source_seed": 4941003000,
  "record_hz": 30,
- "n_frames": 2097,
- "seconds": 69.9,
+ "n_frames": 2125,
+ "seconds": 70.8,
  "cams": [
   "cam_head",
   "cam_wrist_left",

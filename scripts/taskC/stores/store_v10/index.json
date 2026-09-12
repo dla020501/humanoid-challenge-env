@@ -1,0 +1,17 @@
+{
+ "unit_prim": "/World/Unit_0",
+ "units": {
+  "/World/envs/env_0/Store/Kit_06_gondola": "World_envs_env_0_Store_Kit_06_gondola.usdc",
+  "/World/envs/env_0/Store/Kit_07_gondola": "World_envs_env_0_Store_Kit_07_gondola.usdc",
+  "/World/envs/env_0/Store/Kit_08_gondola": "World_envs_env_0_Store_Kit_08_gondola.usdc",
+  "/World/envs/env_0/Store/Kit_09_gondola": "World_envs_env_0_Store_Kit_09_gondola.usdc",
+  "/World/envs/env_0/Store/Kit_10_gondola": "World_envs_env_0_Store_Kit_10_gondola.usdc",
+  "/World/envs/env_0/Store/Kit_11_gondola": "World_envs_env_0_Store_Kit_11_gondola.usdc",
+  "/World/envs/env_0/Store/Kit_12_gondola": "World_envs_env_0_Store_Kit_12_gondola.usdc",
+  "/World/envs/env_0/Store/Kit_13_gondola": "World_envs_env_0_Store_Kit_13_gondola.usdc",
+  "/World/envs/env_0/Store/Kit_14_gondola": "World_envs_env_0_Store_Kit_14_gondola.usdc",
+  "/World/envs/env_0/Store/Kit_15_gondola": "World_envs_env_0_Store_Kit_15_gondola.usdc",
+  "/World/envs/env_0/Store/Kit_16_gondola": "World_envs_env_0_Store_Kit_16_gondola.usdc",
+  "/World/envs/env_0/Store/Kit_17_gondola": "World_envs_env_0_Store_Kit_17_gondola.usdc"
+ }
+}

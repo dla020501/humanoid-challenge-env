@@ -445,7 +445,6 @@ import omni.usd                                                       # noqa: E4
 import isaaclab.sim as sim_utils                                      # noqa: E402
 from isaaclab.assets import AssetBaseCfg, RigidObjectCfg              # noqa: E402
 from isaaclab.scene import InteractiveScene, InteractiveSceneCfg      # noqa: E402
-from isaaclab.sensors import CameraCfg                                # noqa: E402
 from isaaclab.utils import configclass                                # noqa: E402
 
 from cyclo_lab.assets.robots.FFW_SG2 import (                         # noqa: E402
@@ -456,6 +455,8 @@ from cyclo_lab.assets.robots.FFW_SG2 import (                         # noqa: E4
 taskA_colliders = _by_path("taskA_colliders", f"{_TASKA}/taskA_colliders.py")
 taskA_stools = _by_path("taskA_stools", f"{_TASKA}/taskA_stools.py")
 robot_pose = _by_path("taskA_robot_pose", f"{_TASKA}/taskA_robot_pose.py")
+REALCAM = _by_path("FFW_SG2_REAL_cameras", f"{_SRC}/assets/robots/FFW_SG2_REAL_cameras.py")
+head_camera_cfg, wrist_camera_cfg = REALCAM.head_camera_cfg, REALCAM.wrist_camera_cfg
 
 LEFT_JOINTS = [f"arm_l_joint{i + 1}" for i in range(7)]
 RIGHT_JOINTS = [f"arm_r_joint{i + 1}" for i in range(7)]
@@ -466,7 +467,9 @@ class World(InteractiveSceneCfg):
     """매장 전체, 바닥, 로봇, 탁상 위 바구니, 그리고 목적지 옆 책상.
 
     로봇에 달린 카메라 셋은 과제 B 데모와 같은 값이다 -- 정책이 받게 될 관측이 어떤
-    화각인지 여기서 확인할 수 있다.
+    화각인지 여기서 확인할 수 있다. 값은 이미지 안의 assets/robots/FFW_SG2_REAL_cameras.py 가
+    유일한 출처다: head_cam 672x376 · 가로 85.0° (ZED Mini 왼눈), 손목 두 대 424x240 · 가로 87.0°
+    (실기 ai_worker FFW-SG2 의 D405 그대로, camera_?_link 에 그대로 · 0.03~100 m, 2026-09-11).
     """
 
     # 매장 전체: 바닥, 벽, 집기 전부가 fixture_kit 이 조립해 둔 USD 하나에 들어 있다.
@@ -494,35 +497,21 @@ class World(InteractiveSceneCfg):
 
     robot = FFW_SG2_MOBILE_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-    head_cam = CameraCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/ffw_sg2_follower/head_link2/zed/cam_head",
-        update_period=1.0e9, height=376, width=672, data_types=["rgb"],
+    head_cam = head_camera_cfg(
+        update_period=1.0e9,
+        data_types=["rgb"],
         update_latest_camera_pose=True,
-        spawn=sim_utils.PinholeCameraCfg(focal_length=10.4, focus_distance=200.0,
-                                         horizontal_aperture=20.955,
-                                         clipping_range=(0.1, 100.0)),
-        offset=CameraCfg.OffsetCfg(pos=(0.0, 0.03, 0.0), rot=(0.5, 0.5, -0.5, -0.5),
-                                   convention="isaac"))
-    left_wrist_cam = CameraCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/ffw_sg2_follower/arm_l_link7"
-                  "/camera_l_bottom_screw_frame/camera_l_link/left_wrist_cam",
-        update_period=1.0e9, height=240, width=424, data_types=["rgb"],
+    )
+    cam_left_wrist = wrist_camera_cfg("left",
+        update_period=1.0e9,
+        data_types=["rgb"],
         update_latest_camera_pose=True,
-        spawn=sim_utils.PinholeCameraCfg(focal_length=18.0, focus_distance=400.0,
-                                         horizontal_aperture=20.955,
-                                         clipping_range=(0.1, 2.0)),
-        offset=CameraCfg.OffsetCfg(pos=(-0.08, 0.0, 0.0), rot=(0.5, -0.5, -0.5, 0.5),
-                                   convention="isaac"))
-    right_wrist_cam = CameraCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/ffw_sg2_follower/arm_r_link7"
-                  "/camera_r_bottom_screw_frame/camera_r_link/right_wrist_cam",
-        update_period=1.0e9, height=240, width=424, data_types=["rgb"],
+    )
+    cam_right_wrist = wrist_camera_cfg("right",
+        update_period=1.0e9,
+        data_types=["rgb"],
         update_latest_camera_pose=True,
-        spawn=sim_utils.PinholeCameraCfg(focal_length=18.0, focus_distance=400.0,
-                                         horizontal_aperture=20.955,
-                                         clipping_range=(0.1, 2.0)),
-        offset=CameraCfg.OffsetCfg(pos=(-0.08, 0.0, 0.0), rot=(0.5, -0.5, -0.5, 0.5),
-                                   convention="isaac"))
+    )
 
     def __post_init__(self):
         # 바구니. 집을 것이므로 강체다 -- 탁상 위에 놓이고, 상판 콜라이더가 받쳐 준다
@@ -573,6 +562,13 @@ def main():
     # 않는다 -- 2026-08-12 실측: 스툴 열둘에 최대 1.10 m 이동을 써 넣었고 하나도 움직이지
     # 않았다. 그래서 콜라이더도 스툴도 여기서 끝낸다.
     stage = omni.usd.get_context().get_stage()
+    # 조명은 매장 씬이 들고 온 것을 그대로 쓴다 (2026-09-12). 씬의 Dome 850 · Key 1500 ·
+    # 냉장고 RectLight 8개가 그대로 켜져 있고, 과제 B·C 도 그 조명으로 돈다. 돔이 둘이면
+    # 화면이 하얗게 뜨므로 끄는 쪽은 우리 돔이다.
+    ours = stage.GetPrimAtPath("/World/Light")
+    if ours and ours.IsValid():
+        ours.SetActive(False)
+    print("[A] 매장   씬의 조명을 그대로 쓴다 (Dome 850 · Key 1500 · 냉장고) -- 우리 돔은 껐다", flush=True)
 
     # **`harden()` 앞이어야 한다.** 진열을 걸면 곤돌라 프림의 참조가 통째로 갈린다. harden 을
     # 먼저 하면 콜라이더 설정이 **이미 없어진 프림**에 붙고, 그러면 로봇이 진열대를 뚫고

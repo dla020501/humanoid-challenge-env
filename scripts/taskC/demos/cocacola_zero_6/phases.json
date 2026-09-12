@@ -10,30 +10,30 @@
   },
   {
    "name": "grasp",
-   "start_frame": 305
+   "start_frame": 438
   },
   {
    "name": "lift",
-   "start_frame": 420
+   "start_frame": 570
   },
   {
    "name": "sweep_00",
-   "start_frame": 538
+   "start_frame": 721
   },
   {
    "name": "sweep_01",
-   "start_frame": 797
+   "start_frame": 1253
   },
   {
    "name": "ret_down",
-   "start_frame": 1061
+   "start_frame": 1677
   },
   {
    "name": "ret_retreat",
-   "start_frame": 1397
+   "start_frame": 1883
   }
  ],
- "n_frames": 2097,
+ "n_frames": 2125,
  "trim_head": 15,
  "trim_head_s": 0.5
 }

@@ -1,6 +1,6 @@
 {
  "slug": "ottogi_cupnoodle_buldak",
- "seed": 3055117000,
+ "seed": 4942003000,
  "grade": "CLEAN",
  "n_ok": 0,
  "product_name": "컵누들 불닭맛 저당",
@@ -11,10 +11,10 @@
   "3": "컵누들 불닭맛 저당을 다시 제자리에 가져다 놓아라"
  },
  "sample_index": 2,
- "source_seed": 3055117000,
+ "source_seed": 4942003000,
  "record_hz": 30,
- "n_frames": 1928,
- "seconds": 64.2,
+ "n_frames": 1683,
+ "seconds": 56.1,
  "cams": [
   "cam_head",
   "cam_wrist_left",
