@@ -4,7 +4,7 @@
 #
 # 두 종류의 검사가 있다.
 #   check_settled   물리 정착 뒤 상품마다: 띠 안쪽인가, 상판을 뚫었나, 서 있나(원통) / 평평한가
-#                   (상자), QR 면이 바닥을 보나, QR 방위 오차가 3 도 안인가, 상품끼리 10 cm
+#                   (상자), QR 면이 바닥을 보나, QR 방위 오차가 3 도 안인가, 상품끼리 8 cm
 #                   떨어졌나. 하나라도 어긋나면 그 seed 는 다음 attempt 로 재딜한다.
 #                   원본 `qr_scene.settle_and_check` 의 검사부를 그대로 옮겼다.
 #   check_static    `--check` 용. 에셋(상품 8 종 USD·info.json·타일 json·스캐너·매장 USD)이
@@ -91,7 +91,7 @@ def check_settled(entries):
             r["inside"] = False
             ok = False
 
-    # QR-11: 정착 후 표면-표면(AABB) 간격 >= 10 cm
+    # QR-11: 정착 후 표면-표면(AABB) 간격 >= MIN_GAP (2026-09-12 부터 8 cm)
     for i in range(len(res)):
         for j in range(i + 1, len(res)):
             dx = abs(res[i]["pos"][0] - res[j]["pos"][0]) - res[i]["he"][0] - res[j]["he"][0]

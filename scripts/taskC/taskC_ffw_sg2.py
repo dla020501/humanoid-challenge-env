@@ -234,6 +234,15 @@ SG2_SWERVE_WHEEL_RADIUS = 0.0865
 # How far a swerve module can actually steer, from FFW_SH5.usd's *_wheel_steer_joint limits.
 SG2_SWERVE_STEER_LIMIT_DEG = 90.52732849121094
 
+# 2026-09-11: 머리 피치의 하향 상한.
+#
+# ffw_sg2_follower.urdf 는 head_joint1 을 lower=-0.2317 upper=+0.6951 (-13.3 ~ +39.8 도)로
+# 적는다. 그런데 ROBOTIS 하드웨어 사양표(Joint Configuration and Nomenclature)는 같은 관절을
+# -50 ~ 30 도로 적고, ffw_teleop/keyboard_control.py 는 +/-1.0 rad(+/-57.3 도)까지 명령을
+# 허용한다. 세 값이 다르고 사양표에는 부호 방향이 적혀 있지 않다. 확정되기 전까지 45 도를
+# 쓴다 -- 어느 읽기에서도 종전 조합(관절 39.8 + 카메라 30 = 69.8 도)보다 실기에 가깝다.
+SG2_HEAD_PITCH_LIMIT_DEG = 45.0
+
 # FFW-SG2's base link is called `world` (FFW-SH5 calls its own `base_link`).
 _SG2_BASE_LINK = "world"
 
@@ -400,6 +409,32 @@ def _filter_sg2_head_trunk_collisions(stage, prim_path: str) -> None:
     print("[SG2 collision filter] disabled head collision with the trunk (world, arm_base_link).")
 
 
+def _raise_sg2_head_pitch_limit(stage, prim_path: str) -> None:
+    """Let head_joint1 pitch down to SG2_HEAD_PITCH_LIMIT_DEG.
+
+    The shipped URDF stops the head at +0.6951 rad (39.83 deg). Task C has to look further
+    down than that to keep the counter's work area in frame. The old build made up the
+    difference by rotating the camera prim 30 deg, but the real ZED is bolted to head_link2
+    with rpy 0 0 0 -- that rotation does not exist on the robot. Moving it into the joint is
+    the only version a real arm can reproduce.
+
+    Applied at spawn rather than by editing the shipped USD, the same way the wheel joints
+    are. Only the upper (downward) limit moves; the upward limit is left as authored.
+    """
+    for child_prim in _iter_robot_prims(stage, prim_path):
+        if child_prim.GetName() != "head_joint1":
+            continue
+        if not child_prim.IsA(UsdPhysics.RevoluteJoint):
+            continue
+        joint = UsdPhysics.RevoluteJoint(child_prim)
+        was = joint.GetUpperLimitAttr().Get()
+        if was is not None and float(was) >= SG2_HEAD_PITCH_LIMIT_DEG:
+            return
+        joint.CreateUpperLimitAttr().Set(SG2_HEAD_PITCH_LIMIT_DEG)
+        print(f"[SG2 head] head_joint1 down limit {was} -> {SG2_HEAD_PITCH_LIMIT_DEG} deg")
+        return
+
+
 def _align_sg2_wheel_joint_limits(stage, prim_path: str) -> None:
     """Give the swerve joints the travel FFW_SH5.usd gives them.
 
@@ -470,6 +505,7 @@ def spawn_sg2_mobile(prim_path, cfg, translation=None, orientation=None, **kwarg
     _filter_sg2_hand_base_jaw_collisions(stage, prim_path)
     _filter_sg2_head_trunk_collisions(stage, prim_path)
     _align_sg2_wheel_joint_limits(stage, prim_path)
+    _raise_sg2_head_pitch_limit(stage, prim_path)
 
     return prim
 

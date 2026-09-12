@@ -120,6 +120,15 @@ def _demos(which):
     return out
 
 
+def _demos_or_die(which):
+    out = _demos(which)
+    if not out:
+        raise SystemExit(
+            f"'{which}' 묶음에 동봉된 기록이 없습니다. 정답 궤적(gt)은 새 구성으로 다시 "
+            f"수집하는 중이라 잠시 빠져 있습니다 -- `--set single` 로 트십시오.")
+    return out
+
+
 def _meta(d):
     f = os.path.join(d, "meta.json")
     return json.load(open(f, encoding="utf-8")) if os.path.isfile(f) else {}
@@ -131,7 +140,7 @@ if args_cli.lerobot:
     from taskC import taskC_lerobot as LR       # noqa: E402
     EPISODE = LR.materialize(args_cli.lerobot, args_cli.episode_index)
 elif args_cli.list or (args_cli.episode is None):
-    lst = _demos(args_cli.set)
+    lst = _demos_or_die(args_cli.set)
     if args_cli.list:
         for which in ("gt", "single"):
             print(f"\n[{which}] {DEMO_DIRS[which]}")
@@ -457,6 +466,23 @@ def main():
         except Exception as _e9:
             _log("턱 SDF 불가: %r" % (_e9,))
     counter.remove_low_shelf(stage, log=_log)
+    # 2026-09-12: 기타 진열대(곤돌라 12 개)에 이 판의 진열을 건다. 계산대·스캐너·빨간 띠·
+    # 집는 상품은 건드리지 않는다 -- 배경만 바뀐다. 정책이 배경까지 외우는 것을 막는다.
+    # 장면 파일에 `store_variant` 가 있으면 그 벌을 그대로 세운다(기록과 같은 배경이 선다).
+    # 없으면 걸지 않는다 -- 그 판은 매장 USD 의 기본 진열로 수집된 것이기 때문이다.
+    try:
+        from taskC import taskC_store_dress as _dress
+        _sv = SCENE.get("store_variant")
+        if _sv:
+            _vs = _dress.variants()
+            if _sv in _vs:
+                _dress.dress(stage, _vs.index(_sv), log=_log)
+            else:
+                _log("진열(기타): 장면이 가리키는 %s 이 없다 -- 기본 진열로 간다" % _sv)
+        else:
+            _log("진열(기타): 장면에 store_variant 가 없다 -- 기본 진열로 간다")
+    except Exception as _edr:
+        _log("진열(기타) 건너뜀: %r" % (_edr,))
     # V4-311: 스캐너와 로봇의 충돌을 **`sim.reset()` 전에** 끈다. 수집 파이프라인
     # (qr_sweep_replay.py 798~818)이 하는 그대로다. 리셋 뒤에 걸면 PhysX 가 이미 충돌 쌍을
     # 구성한 뒤라 먹지 않는다(그쪽 실측: `physics:filteredPairs not found` 경고).

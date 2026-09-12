@@ -10,7 +10,8 @@
 #   * QR-21: 모든 상품의 QR 면 법선이 세계 -Y(정 오른쪽)를 향하도록 요를 조준한다.
 #   * V4-32: 원통은 직립. 반은 뒤집어 세운다(윗면이 바닥). 옆으로 눕는 것은 없다.
 #   * QR-73/81: 상자는 허용된 바닥면으로 **눕혀** 놓는다(긴 축이 위로 서지 않는다).
-#   * QR-11/81: 빨간 띠 안쪽(테이프 제외)에, 상품 표면-표면 >= 10 cm (축정렬 사각형으로 잰다).
+#   * QR-11/81: 빨간 띠 안쪽(테이프 제외)에, 상품 표면-표면 >= `L.MIN_GAP` (2026-09-12 부터
+#     8 cm. 축정렬 사각형으로 잰다).
 #   * QR-35: 스토우 자세의 왼손 그리퍼 아래(로봇 좌표 (0.19, 0.30), 반경 0.14) 에는 놓지 않는다.
 #   * QR-128: 슬롯 0 이 상자면 앞 400 시도를 로봇 근측(y 하위 절반, x 하위 2/3)으로 편향한다.
 #
@@ -28,6 +29,12 @@ FLIP_P = 0.5        # V4-32: 원통을 뒤집어 세울 확률 (원본 TASKC_FLI
 RECT_GAP = True     # QR-81: 간격을 원이 아니라 축정렬 사각형으로 잰다
 NEAR_BIAS = True    # QR-128: 슬롯 0 상자의 근측 편향
 TRIES = 800         # 자리 뽑기 시도 수 (원본과 동일)
+# 2026-09-12: 표면 간격(`L.MIN_GAP`, 8 cm)은 필수다. 무작위로 찍어 보고 걸리면 다시 놓는 방식은 띠가
+# 좁아질수록 자리가 있는데도 못 찾는다 (실측: 삼양+예감+오뚜기 조합 150 판 중 146 판
+# 이 한 번에 못 맞췄다). 그래서 무작위가 실패하면 **남은 영역을 직접 훑어** 고른다.
+# 정착하면서 조금 밀리므로 놓을 때는 1.5 cm 를 더 띄운다 -- 검사는 `L.MIN_GAP` 그대로다.
+GAP_TARGET = L.MIN_GAP + 0.015
+GRID_STEP = 0.005   # 남은 영역을 훑는 간격
 
 
 # --------------------------------------------------------------------------- 쿼터니언 도구
@@ -247,6 +254,49 @@ def pick_products(seed, products=None):
     return random.Random(f"{seed}-products").sample(sorted(P.PRODUCTS), 3)
 
 
+class Infeasible(Exception):
+    """이 딜에서는 규칙을 지킬 자리가 없다 -- 다시 딜한다(자리 없이 저장하지 않는다)."""
+
+
+def _spot_ok(x, y, hx, hy, placed, grip, want):
+    if rect_gap(x, y, hx, hy, grip[0], grip[1], 0.0, 0.0) < L.STOW_GRIP_CLEAR:
+        return False
+    return all(rect_gap(x, y, hx, hy, px, py, phx, phy) >= want
+               for px, py, phx, phy in placed)
+
+
+def gap_target(attempt):
+    """놓을 때 띄우는 거리. 정착하며 1.5~3.5 cm 밀리므로 재딜할수록 더 띄운다."""
+    return L.MIN_GAP + 0.015 + 0.010 * min(attempt // 4, 3)
+
+
+def pick_spot(rng, x0, x1, y0, y1, hx, hy, placed, grip, near, xm, ym, want0=None):
+    """규칙(간격·스토우 그리퍼)을 지키는 자리 하나. 없으면 None."""
+    want0 = GAP_TARGET if want0 is None else want0
+    for t in range(TRIES):
+        if near and t < TRIES // 2:
+            x, y = rng.uniform(x0, min(xm, x1)), rng.uniform(y0, min(ym, y1))
+        else:
+            x, y = rng.uniform(x0, x1), rng.uniform(y0, y1)
+        if _spot_ok(x, y, hx, hy, placed, grip, want0):
+            return (x, y)
+    # 여유를 5 mm 씩 낮추며 **가능한 가장 큰 여유**로 잡는다. 한 번에 하한으로 떨어뜨리면
+    # 딱 붙여 놓게 되고 정착하며 밀려 다시 규칙을 어긴다 (실측: 정착 밀림 1.5~3.5 cm).
+    want = want0
+    while want >= L.MIN_GAP - 1e-9:
+        nx = int((x1 - x0) / GRID_STEP) + 1
+        ny = int((y1 - y0) / GRID_STEP) + 1
+        cells = [(x0 + i * GRID_STEP, y0 + j * GRID_STEP)
+                 for i in range(nx) for j in range(ny)
+                 if _spot_ok(x0 + i * GRID_STEP, y0 + j * GRID_STEP, hx, hy, placed, grip, want)]
+        if near:
+            pref = [c for c in cells if c[0] <= xm and c[1] <= ym]
+            cells = pref or cells
+        if cells:
+            return cells[rng.randrange(len(cells))]
+        want -= 0.005
+    return None
+
 def _foot(slug):
     es = sorted(float(v) / 1000.0 for v in P.size_mm(slug))
     return es[1] * es[1] if P.is_cylinder(slug) else es[2] * es[1]
@@ -293,22 +343,11 @@ def deal(seed, attempt, slugs):
         near = NEAR_BIAS and slug == slugs[0] and not P.is_cylinder(slug)
         ym = y0 + 0.5 * (y1 - y0)
         xm = x0 + 0.67 * (x1 - x0)
-        pos = None
-        for t in range(TRIES):
-            if near and t < TRIES // 2:
-                x = rng.uniform(x0, min(xm, x1))
-                y = rng.uniform(y0, min(ym, y1))
-            else:
-                x, y = rng.uniform(x0, x1), rng.uniform(y0, y1)
-            if rect_gap(x, y, hx, hy, gx, gy, 0.0, 0.0) < L.STOW_GRIP_CLEAR:
-                continue
-            if all(rect_gap(x, y, hx, hy, px, py, phx, phy) >= L.MIN_GAP
-                   for px, py, phx, phy in placed):
-                pos = (x, y)
-                break
+        pos = pick_spot(rng, x0, x1, y0, y1, hx, hy, placed, (gx, gy), near, xm, ym,
+                        gap_target(attempt))
         if pos is None:
-            print(f"[SCENE] {slug}: 간격 10cm 만족 위치 실패 ({TRIES} 시도) -- 재딜 유도", flush=True)
-            pos = (rng.uniform(x0, x1), rng.uniform(y0, y1))     # 정착 검사가 기각한다
+            print(f"[SCENE] {slug}: 규칙을 지킬 자리가 없다 -- 다시 딜한다", flush=True)
+            raise Infeasible(slug)
         placed.append((pos[0], pos[1], hx, hy))
         by_slug[slug] = dict(slug=slug, pos=(float(pos[0]), float(pos[1]), float(z)),
                              quat=tuple(float(v) for v in q))

@@ -1,6 +1,6 @@
 {
  "slug": "yegam_original",
- "seed": 1718090000,
+ "seed": 4948003000,
  "grade": "CLEAN",
  "n_ok": 0,
  "product_name": "예감 오리지널",
@@ -11,10 +11,10 @@
   "3": "예감 오리지널을 다시 제자리에 가져다 놓아라"
  },
  "sample_index": 3,
- "source_seed": 1718090000,
+ "source_seed": 4948003000,
  "record_hz": 30,
- "n_frames": 1983,
- "seconds": 66.1,
+ "n_frames": 1588,
+ "seconds": 52.9,
  "cams": [
   "cam_head",
   "cam_wrist_left",

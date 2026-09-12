@@ -92,6 +92,8 @@ def _by_path(name, path):
     return mod
 
 
+REALCAM = _by_path("FFW_SG2_REAL_cameras", f"{_SRC}/assets/robots/FFW_SG2_REAL_cameras.py")
+head_camera_cfg, wrist_camera_cfg = REALCAM.head_camera_cfg, REALCAM.wrist_camera_cfg
 taskB_shelf = _by_path("taskB_shelf", f"{_SRC}/assets/object/taskB_shelf.py")
 taskB_restock = _by_path("taskB_restock", f"{_SRC}/assets/object/taskB_restock.py")
 taskB_table = _by_path("taskB_table", f"{_SRC}/assets/object/taskB_table.py")
@@ -238,8 +240,9 @@ class World(InteractiveSceneCfg):
     """바닥, 조명, 로봇, 진열대, 책상, 상자, 그리고 이 장면의 상품 전부.
 
     카메라 셋은 채점이 정책에게 보내는 관측과 같은 값이다 -- head_cam 672x376,
-    left_wrist_cam · right_wrist_cam 424x240. 환경 코드의 기본 해상도는 244x244 지만
-    채점 서버가 이 값으로 덮어쓰므로, 여기도 같은 값을 명시한다. 두 손목 카메라는
+    left_wrist_cam · right_wrist_cam 424x240. 손목 두 대는 실기 ai_worker FFW-SG2 의 D405 그대로다
+    (camera_?_link 에 그대로 · focal 11 = 가로 87° · 0.03~10 m, 2026-09-11). 채점 서버도 이 값으로
+    덮어쓰므로, 여기도 같은 값을 명시한다. 두 손목 카메라는
     붙는 팔만 다르고 나머지 설정이 같다 -- 마운트 프레임이 양팔에 다 있고
     (arm_?_link7/camera_?_bottom_screw_frame/camera_?_link), 왼쪽은 오른쪽의 거울이다.
     """
@@ -250,41 +253,21 @@ class World(InteractiveSceneCfg):
         spawn=sim_utils.DomeLightCfg(intensity=2500.0, color=(1.0, 1.0, 1.0)))
     robot = FFW_SG2_MOBILE_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
-    head_cam = CameraCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/ffw_sg2_follower/head_link2/head_cam",
-        update_period=1.0e9, height=376, width=672, data_types=["rgb"],
+    head_cam = head_camera_cfg(
+        update_period=1.0e9,
+        data_types=["rgb"],
         update_latest_camera_pose=True,
-        # 데이터 수집이 쓴 값이다 (`meta.picture`: cam_focal 10.4 · cam_focus 200 ·
-        # cam_clip 0.1,100.0). far clip 이 2 m 면 4 m 뒤의 냉장고·카운터가 안 그려진다.
-        spawn=sim_utils.PinholeCameraCfg(focal_length=10.4, focus_distance=200.0,
-                                         horizontal_aperture=20.955,
-                                         clipping_range=(0.1, 100.0)),
-        offset=CameraCfg.OffsetCfg(pos=(-0.03, 0.04, 0.0), rot=(0.5, 0.5, -0.5, -0.5),
-                                   convention="isaac"))
-    left_wrist_cam = CameraCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/ffw_sg2_follower/arm_l_link7"
-                  "/camera_l_bottom_screw_frame/camera_l_link/left_wrist_cam",
-        update_period=1.0e9, height=240, width=424, data_types=["rgb"],
+    )
+    left_wrist_cam = wrist_camera_cfg("left", 
+        update_period=1.0e9,
+        data_types=["rgb"],
         update_latest_camera_pose=True,
-        # 실기 D405 의 기본 프로파일이다 (taskb_unified_env_cfg.py:146 "the D405's own
-        # default profile").
-        spawn=sim_utils.PinholeCameraCfg(focal_length=18.0, focus_distance=400.0,
-                                         horizontal_aperture=20.955,
-                                         clipping_range=(0.1, 2.0)),
-        offset=CameraCfg.OffsetCfg(pos=(-0.08, 0.0, 0.0), rot=(0.5, -0.5, -0.5, 0.5),
-                                   convention="isaac"))
-    right_wrist_cam = CameraCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/ffw_sg2_follower/arm_r_link7"
-                  "/camera_r_bottom_screw_frame/camera_r_link/right_wrist_cam",
-        update_period=1.0e9, height=240, width=424, data_types=["rgb"],
+    )
+    right_wrist_cam = wrist_camera_cfg("right", 
+        update_period=1.0e9,
+        data_types=["rgb"],
         update_latest_camera_pose=True,
-        # 실기 D405 의 기본 프로파일이다 (taskb_unified_env_cfg.py:146 "the D405's own
-        # default profile").
-        spawn=sim_utils.PinholeCameraCfg(focal_length=18.0, focus_distance=400.0,
-                                         horizontal_aperture=20.955,
-                                         clipping_range=(0.1, 2.0)),
-        offset=CameraCfg.OffsetCfg(pos=(-0.08, 0.0, 0.0), rot=(0.5, -0.5, -0.5, 0.5),
-                                   convention="isaac"))
+    )
 
     def __post_init__(self):
         self.shelf = taskB_shelf.taskB_shelf_cfg(FRONT_X)
@@ -349,11 +332,14 @@ def _store_scene_fixups():
     fix.SetActive(False)
     print("[B] 매장   Fix_shelf_taskB 를 껐다 -- 그 자리에 우리 진열대가 선다")
 
-    for name in ("Dome", "Key"):
-        lp = stage.GetPrimAtPath(f"/World/envs/env_0/StoreBg/{name}")
-        if lp and lp.IsValid():
-            lp.SetActive(False)
-    print("[B] 매장   씬의 전역 조명(Dome·Key)을 껐다 -- 우리 돔만 쓴다")
+    # 조명은 매장 씬이 들고 온 것을 그대로 쓴다 (2026-09-12). 씬의 Dome 850 · Key 1500 ·
+    # 냉장고 RectLight 8개가 그대로 켜져 있고, 과제 A·C 도 그 조명으로 돈다. 학습 데이터도
+    # 2026-09-12 부터 이 조명으로 다시 그린다. 돔이 둘이면 화면이 하얗게 뜨므로 끄는 쪽은
+    # 우리 돔이다.
+    ours = stage.GetPrimAtPath("/World/Light")
+    if ours and ours.IsValid():
+        ours.SetActive(False)
+    print("[B] 매장   씬의 조명을 그대로 쓴다 (Dome 850 · Key 1500 · 냉장고) -- 우리 돔은 껐다")
 
     g = stage.GetPrimAtPath("/World/ground")
     if g and g.IsValid():
